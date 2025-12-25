@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
@@ -14,16 +14,18 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI).then(()=>console.log("MDB Connected")).catch(err => console.error(err));
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/dpay')
+  .then(() => console.log("MongoDB Connected Successfully"))
+  .catch(err => console.error("MongoDB Connection Error:", err));
 
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
 db.once('open', () => {
-  console.log('Connected to MDB');
+  console.log('Connected to MongoDB');
 });
 
 // JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 // Generate unique IDs
 const generateUPIId = (username, mobile) => {
@@ -82,11 +84,12 @@ const checkBankServerStatus = (bankName) => {
   };
 };
 
-// User Schema
+// User Schema with PAN and Credit Score
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true },
-  email: { type: String },
+  email: { type: String, required: true, unique: true },
   mobile: { type: String, required: true, unique: true },
+  panNumber: { type: String, required: true, uppercase: true },
   dob: { type: Date },
   bankName: { type: String, required: true },
   accountNumber: { type: String, required: true },
@@ -95,6 +98,7 @@ const userSchema = new mongoose.Schema({
   upiId: { type: String, unique: true },
   referralCode: { type: String, unique: true },
   photo: { type: String },
+  creditScore: { type: Number, default: 650, min: 300, max: 900 },
   balance: { type: Number, default: 1000.00 },
   appBalance: { type: Number, default: 0 },
   registrationDate: { type: Date, default: Date.now },
@@ -120,7 +124,7 @@ userSchema.pre('save', function(next) {
   if (!this.referralCode) {
     this.referralCode = generateReferralCode(this.username, this.mobile);
   }
-  // next();
+  next();
 });
 
 const User = mongoose.model('User', userSchema);
@@ -197,21 +201,54 @@ app.get('/api/banks/status', (req, res) => {
 });
 
 // Auth Routes
+// FIXED: Registration endpoint with PAN and Credit Score
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, email, mobile, dob, bankName, accountNumber, atmCardNumber, upiPin, referralCode, photo } = req.body;
+    const { username, email, mobile, panNumber, dob, bankName, accountNumber, atmCardNumber, upiPin, referralCode, photo } = req.body;
     
-    // Check if mobile already exists
-    const existingUser = await User.findOne({ mobile });
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: 'Mobile number already registered.' });
+    // Validate required fields
+    if (!username || !email || !mobile || !panNumber || !bankName || !accountNumber || !atmCardNumber || !upiPin) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'All required fields must be filled: Name, Email, Mobile, PAN, Bank, Account Number, ATM Card, UPI PIN' 
+      });
     }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, message: 'Invalid email format.' });
+    }
+    
+    // Validate PAN format
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    if (!panRegex.test(panNumber.toUpperCase())) {
+      return res.status(400).json({ success: false, message: 'Invalid PAN format. Must be ABCDE1234F' });
+    }
+    
+    // Check if email or mobile already exists
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { mobile }] 
+    });
+    
+    if (existingUser) {
+      if (existingUser.email === email) {
+        return res.status(400).json({ success: false, message: 'Email already registered.' });
+      }
+      if (existingUser.mobile === mobile) {
+        return res.status(400).json({ success: false, message: 'Mobile number already registered.' });
+      }
+    }
+    
+    // Generate credit score (650-850 based on random)
+    const creditScore = Math.floor(Math.random() * 200) + 650;
     
     // Create new user
     const newUser = new User({
       username,
       email,
       mobile,
+      panNumber: panNumber.toUpperCase(),
       dob,
       bankName,
       accountNumber,
@@ -219,6 +256,7 @@ app.post('/api/auth/register', async (req, res) => {
       upiPin, // Store plain UPI PIN for demo (in production, hash it)
       referralCode,
       photo,
+      creditScore,
       balance: 1000.00,
       appBalance: 0
     });
@@ -227,7 +265,7 @@ app.post('/api/auth/register', async (req, res) => {
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId: newUser._id, mobile: newUser.mobile },
+      { userId: newUser._id, email: newUser.email, mobile: newUser.mobile },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -240,8 +278,10 @@ app.post('/api/auth/register', async (req, res) => {
         username: newUser.username,
         email: newUser.email,
         mobile: newUser.mobile,
+        panNumber: newUser.panNumber,
         upiId: newUser.upiId,
         referralCode: newUser.referralCode,
+        creditScore: newUser.creditScore,
         balance: newUser.balance,
         appBalance: newUser.appBalance,
         bankName: newUser.bankName,
@@ -255,19 +295,36 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// FIXED: Login endpoint with email or mobile support
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { mobile, otp } = req.body;
+    const { mobile, email, otp } = req.body;
     
-    // For demo purposes, accept any OTP starting with 1234
-    if (!mobile || !otp) {
-      return res.status(400).json({ success: false, message: 'Mobile and OTP are required.' });
+    // Validate input
+    if (!otp) {
+      return res.status(400).json({ success: false, message: 'OTP is required.' });
     }
     
-    // Find user
-    const user = await User.findOne({ mobile, isActive: true });
+    if (!mobile && !email) {
+      return res.status(400).json({ success: false, message: 'Mobile or Email is required.' });
+    }
+    
+    // Find user by mobile or email
+    let user;
+    if (mobile) {
+      user = await User.findOne({ mobile, isActive: true });
+    } else if (email) {
+      user = await User.findOne({ email, isActive: true });
+    }
+    
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found. Please register first.' });
+    }
+    
+    // For demo purposes, accept any OTP starting with 123456
+    // In production, implement proper OTP verification
+    if (otp !== '123456') {
+      return res.status(400).json({ success: false, message: 'Invalid OTP. For demo, use 123456' });
     }
     
     // Update last login
@@ -276,7 +333,7 @@ app.post('/api/auth/login', async (req, res) => {
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId: user._id, mobile: user.mobile },
+      { userId: user._id, email: user.email, mobile: user.mobile },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -289,8 +346,10 @@ app.post('/api/auth/login', async (req, res) => {
         username: user.username,
         email: user.email,
         mobile: user.mobile,
+        panNumber: user.panNumber,
         upiId: user.upiId,
         referralCode: user.referralCode,
+        creditScore: user.creditScore,
         balance: user.balance,
         appBalance: user.appBalance,
         bankName: user.bankName,
@@ -347,11 +406,14 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
     // Don't allow updating certain fields
     delete updates._id;
     delete updates.mobile;
+    delete updates.email;
+    delete updates.panNumber;
     delete updates.balance;
     delete updates.appBalance;
     delete updates.registrationDate;
     delete updates.upiId;
     delete updates.referralCode;
+    delete updates.creditScore;
     
     const user = await User.findByIdAndUpdate(
       userId,
@@ -921,7 +983,29 @@ app.get('/api/loans/user/:userId', verifyToken, async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date() });
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date(),
+    service: 'DPay API',
+    version: '1.0.0'
+  });
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'DPay API is working!',
+    endpoints: [
+      '/api/health',
+      '/api/auth/register',
+      '/api/auth/login',
+      '/api/users/:id',
+      '/api/transactions/user/:userId',
+      '/api/payments/downtime',
+      '/api/loans/apply'
+    ]
+  });
 });
 
 // Start server
