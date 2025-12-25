@@ -1,0 +1,16 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn.lock
+
+# Environment files
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+
+# OS / Editor
+.DS_Store
+.vscode/
