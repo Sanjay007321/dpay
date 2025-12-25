@@ -618,11 +618,14 @@ const ScratchCard = ({ onScratch, reward, isScratched, onClose }) => {
 // API Service Functions
 const apiService = {
   // Auth APIs
-  async login(mobile, otp) {
+  async login(identifier, otp, method) {
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile, otp })
+      body: JSON.stringify({ 
+        [method]: identifier, 
+        otp 
+      })
     });
     return response.json();
   },
@@ -741,7 +744,7 @@ export default function DPayApp() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [showAuth, setShowAuth] = useState(true);
   const [authMode, setAuthMode] = useState('login');
-  const [step, setStep] = useState('mobile');
+  const [step, setStep] = useState('identifier');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -846,6 +849,7 @@ export default function DPayApp() {
     username: '',
     email: '',
     mobile: '',
+    panNumber: '',
     dob: '',
     bankName: '',
     accountNumber: '',
@@ -1028,18 +1032,20 @@ export default function DPayApp() {
 
   // Generate OTP
   const generateOTP = () => {
-    return '123456'; // For demo purposes, always return 123456
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOTP(otp);
+    return otp;
   };
 
   // Send OTP to mobile/email
   const sendOTP = () => {
     const otp = generateOTP();
-    setGeneratedOTP(otp);
     
+    // For demo, just show the OTP in alert
     if (otpMethod === 'mobile' && mobile) {
-      alert(`For demo: OTP is ${otp}. Use this to login.`);
+      alert(`For demo: OTP sent to ${mobile} is ${otp}. Use this to login.`);
     } else if (otpMethod === 'email' && email) {
-      alert(`For demo: OTP is ${otp}. Use this to login.`);
+      alert(`For demo: OTP sent to ${email} is ${otp}. Use this to login.`);
     }
     
     setStep('otp');
@@ -1793,7 +1799,7 @@ export default function DPayApp() {
         setLoggedIn(false);
         setShowAuth(true);
         setAuthMode('login');
-        setStep('mobile');
+        setStep('identifier');
         setMobile('');
         setEmail('');
         setOtp('');
@@ -1832,13 +1838,15 @@ export default function DPayApp() {
     }
   };
 
+  // FIXED: Handle Login with email or mobile
   const handleLogin = async () => {
     if (otp === generatedOTP) {
       setIsLoading(true);
       setLoadingMessage(FUN_LOADING_MESSAGES[Math.floor(Math.random() * FUN_LOADING_MESSAGES.length)]);
       
       try {
-        const response = await apiService.login(mobile, otp);
+        const identifier = otpMethod === 'mobile' ? mobile : email;
+        const response = await apiService.login(identifier, otp, otpMethod);
         
         if (response.success) {
           setLoggedIn(true);
@@ -1849,7 +1857,7 @@ export default function DPayApp() {
           localStorage.setItem('dpay_token', response.token);
           localStorage.setItem('dpay_user_id', response.user._id);
           
-          setStep('mobile');
+          setStep('identifier');
           setMobile('');
           setEmail('');
           setOtp('');
@@ -1906,7 +1914,7 @@ export default function DPayApp() {
       setLoggedIn(false);
       setShowAuth(true);
       setAuthMode('login');
-      setStep('mobile');
+      setStep('identifier');
       setMobile('');
       setEmail('');
       setOtp('');
@@ -1957,11 +1965,33 @@ export default function DPayApp() {
     }
   };
 
+  // FIXED: Handle Registration with PAN and all required fields
   const handleRegister = async () => {
-    if (!registerData.username || !registerData.mobile || 
-        !registerData.bankName || !registerData.accountNumber || 
+    // Validate required fields
+    if (!registerData.username || !registerData.email || !registerData.mobile || 
+        !registerData.panNumber || !registerData.bankName || !registerData.accountNumber || 
         !registerData.atmCardNumber || !registerData.upiPin) {
-      alert('Please fill all required fields (Name, Mobile, Bank, Account Number, ATM Card Number, UPI PIN)');
+      alert('Please fill all required fields (Name, Email, Mobile, PAN Number, Bank, Account Number, ATM Card Number, UPI PIN)');
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(registerData.email)) {
+      alert('Please enter a valid email address');
+      return;
+    }
+
+    // Validate mobile number
+    if (registerData.mobile.length !== 10 || !/^\d+$/.test(registerData.mobile)) {
+      alert('Mobile number must be exactly 10 digits');
+      return;
+    }
+
+    // Validate PAN number (format: ABCDE1234F)
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    if (!panRegex.test(registerData.panNumber.toUpperCase())) {
+      alert('PAN number must be in format: ABCDE1234F (5 letters, 4 digits, 1 letter)');
       return;
     }
 
@@ -1984,10 +2014,15 @@ export default function DPayApp() {
       const upiId = generateUPIId(registerData.username, registerData.mobile);
       const referralCode = generateReferralCode(registerData.username, registerData.mobile);
       
+      // Generate random credit score between 650-850
+      const creditScore = Math.floor(Math.random() * 200) + 650;
+      
       const userData = {
         ...registerData,
+        panNumber: registerData.panNumber.toUpperCase(),
         upiId,
         referralCode,
+        creditScore,
         balance: 1000.00,
         appBalance: 0
       };
@@ -2007,6 +2042,7 @@ export default function DPayApp() {
           username: '',
           email: '',
           mobile: '',
+          panNumber: '',
           dob: '',
           bankName: '',
           accountNumber: '',
@@ -2017,7 +2053,7 @@ export default function DPayApp() {
         });
         setPhotoPreview(null);
         
-        alert(`Registration successful! Your UPI ID: ${upiId}\nYour Referral Code: ${referralCode}`);
+        alert(`Registration successful!\nYour UPI ID: ${upiId}\nYour Referral Code: ${referralCode}\nYour Credit Score: ${creditScore}`);
       } else {
         alert(response.message || 'Registration failed');
       }
@@ -2092,8 +2128,8 @@ export default function DPayApp() {
   };
 
   const handleSaveProfile = async () => {
-    if (!editedProfile.username || !editedProfile.mobile) {
-      alert('Name and Mobile are required');
+    if (!editedProfile.username || !editedProfile.mobile || !editedProfile.email) {
+      alert('Name, Email and Mobile are required');
       return;
     }
 
@@ -3678,7 +3714,7 @@ export default function DPayApp() {
     </div>
   );
 
-  // User Details Modal
+  // User Details Modal with Credit Score
   const UserDetailsModal = () => {
     if (!userProfile) return null;
 
@@ -3752,6 +3788,30 @@ export default function DPayApp() {
               <LoadingSpinner />
             ) : (
               <>
+                {/* Credit Score Section */}
+                {userProfile.creditScore && (
+                  <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+                    <p className="text-sm opacity-90 mb-1">Your Credit Score</p>
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">{userProfile.creditScore}</p>
+                        <p className="text-xs opacity-90">CIBIL Score</p>
+                      </div>
+                      <div className="w-32 h-2 bg-white bg-opacity-30 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-green-400"
+                          style={{ width: `${(userProfile.creditScore - 300) / 5.5}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    <p className="text-xs mt-2 opacity-90">
+                      {userProfile.creditScore >= 750 ? 'Excellent' : 
+                       userProfile.creditScore >= 700 ? 'Good' : 
+                       userProfile.creditScore >= 650 ? 'Fair' : 'Poor'} - Updated monthly
+                    </p>
+                  </div>
+                )}
+                
                 {/* Account Information */}
                 <div className="mb-6 space-y-4">
                   <div className="p-4 rounded-xl bg-violet-50 border border-violet-100 text-left">
@@ -3769,7 +3829,21 @@ export default function DPayApp() {
                     </div>
                     <div className="space-y-2">
                       <div>
-                        <p className="text-xs text-violet-500">Mobile Number</p>
+                        <p className="text-xs text-violet-500">Email Address *</p>
+                        {isEditingProfile ? (
+                          <input
+                            type="email"
+                            value={currentProfile.email}
+                            onChange={(e) => setEditedProfile(prev => ({ ...prev, email: e.target.value }))}
+                            className="w-full font-medium text-violet-800 bg-transparent border-b border-violet-300 focus:outline-none focus:border-violet-500"
+                            required
+                          />
+                        ) : (
+                          <p className="font-medium text-violet-800">{currentProfile.email}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-violet-500">Mobile Number *</p>
                         {isEditingProfile ? (
                           <input
                             type="tel"
@@ -3777,23 +3851,27 @@ export default function DPayApp() {
                             onChange={(e) => setEditedProfile(prev => ({ ...prev, mobile: e.target.value }))}
                             className="w-full font-medium text-violet-800 bg-transparent border-b border-violet-300 focus:outline-none focus:border-violet-500"
                             maxLength="10"
+                            required
                           />
                         ) : (
                           <p className="font-medium text-violet-800">+91 {currentProfile.mobile}</p>
                         )}
                       </div>
                       <div>
-                        <p className="text-xs text-violet-500">Email Address</p>
+                        <p className="text-xs text-violet-500">PAN Number *</p>
                         {isEditingProfile ? (
                           <input
-                            type="email"
-                            value={currentProfile.email || ''}
-                            onChange={(e) => setEditedProfile(prev => ({ ...prev, email: e.target.value }))}
-                            className="w-full font-medium text-violet-800 bg-transparent border-b border-violet-300 focus:outline-none focus:border-violet-500"
-                            placeholder="Enter email (optional)"
+                            type="text"
+                            value={currentProfile.panNumber || ''}
+                            onChange={(e) => setEditedProfile(prev => ({ 
+                              ...prev, 
+                              panNumber: e.target.value.toUpperCase() 
+                            }))}
+                            className="w-full font-medium text-violet-800 bg-transparent border-b border-violet-300 focus:outline-none focus:border-violet-500 uppercase"
+                            placeholder="ABCDE1234F"
                           />
                         ) : (
-                          <p className="font-medium text-violet-800">{currentProfile.email || 'Not set'}</p>
+                          <p className="font-medium text-violet-800">{currentProfile.panNumber || 'Not set'}</p>
                         )}
                       </div>
                       <div>
@@ -4275,6 +4353,7 @@ export default function DPayApp() {
                     onChange={(e) => setRegisterData({...registerData, username: e.target.value})}
                     placeholder="Full Name *"
                     className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    required
                   />
                   <p className="text-xs text-violet-500 mt-1 ml-1">Required</p>
                 </div>
@@ -4284,10 +4363,11 @@ export default function DPayApp() {
                     type="email"
                     value={registerData.email}
                     onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
-                    placeholder="Email Address (Optional)"
+                    placeholder="Email Address *"
                     className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    required
                   />
-                  <p className="text-xs text-violet-500 mt-1 ml-1">Optional</p>
+                  <p className="text-xs text-violet-500 mt-1 ml-1">Required - For login and notifications</p>
                 </div>
                 
                 <div>
@@ -4298,8 +4378,21 @@ export default function DPayApp() {
                     placeholder="Mobile Number *"
                     maxLength="10"
                     className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    required
                   />
                   <p className="text-xs text-violet-500 mt-1 ml-1">Required - 10 digits</p>
+                </div>
+                
+                <div>
+                  <input
+                    type="text"
+                    value={registerData.panNumber}
+                    onChange={(e) => setRegisterData({...registerData, panNumber: e.target.value.toUpperCase()})}
+                    placeholder="PAN Number * (Format: ABCDE1234F)"
+                    className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500 uppercase"
+                    required
+                  />
+                  <p className="text-xs text-violet-500 mt-1 ml-1">Required - For credit score calculation</p>
                 </div>
                 
                 <div>
@@ -4320,6 +4413,7 @@ export default function DPayApp() {
                       value={registerData.bankName}
                       onChange={(e) => setRegisterData({...registerData, bankName: e.target.value})}
                       className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500 appearance-none bg-white"
+                      required
                     >
                       <option value="">Select Bank *</option>
                       {INDIAN_BANKS.map((bank, index) => (
@@ -4342,6 +4436,7 @@ export default function DPayApp() {
                     onChange={(e) => setRegisterData({...registerData, accountNumber: e.target.value})}
                     placeholder="Bank Account Number *"
                     className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    required
                   />
                   <p className="text-xs text-violet-500 mt-1 ml-1">Required</p>
                 </div>
@@ -4357,6 +4452,7 @@ export default function DPayApp() {
                     placeholder="ATM Card Number (16 digits) *"
                     maxLength="19"
                     className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
+                    required
                   />
                   <p className="text-xs text-violet-500 mt-1 ml-1">Required - 16 digit card number</p>
                 </div>
@@ -4370,6 +4466,7 @@ export default function DPayApp() {
                       placeholder="Set 4-digit UPI PIN *"
                       maxLength="4"
                       className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      required
                     />
                     <button
                       type="button"
@@ -4448,14 +4545,14 @@ export default function DPayApp() {
           </div>
 
           <p className="text-sm text-violet-600 mb-6 text-center">
-            {step === 'mobile' ? 'Login to access DPay services' : 'Enter OTP to continue'}
+            {step === 'identifier' ? 'Login to access DPay services' : 'Enter OTP to continue'}
           </p>
 
           {isLoading ? (
             <LoadingSpinner />
           ) : (
             <>
-              {step === 'mobile' ? (
+              {step === 'identifier' ? (
                 <>
                   {/* OTP Method Selection */}
                   <div className="mb-4">
@@ -4505,7 +4602,7 @@ export default function DPayApp() {
                     onClick={() => {
                       if (otpMethod === 'mobile' && mobile.length >= 10) {
                         sendOTP();
-                      } else if (otpMethod === 'email' && email) {
+                      } else if (otpMethod === 'email' && email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
                         sendOTP();
                       } else {
                         alert(`Please enter a valid ${otpMethod === 'mobile' ? '10-digit mobile number' : 'email address'}`);
@@ -4550,7 +4647,7 @@ export default function DPayApp() {
                   </button>
                   <button
                     onClick={() => {
-                      setStep('mobile');
+                      setStep('identifier');
                       setOtp('');
                     }}
                     className="w-full mt-3 py-2 text-violet-600 font-medium hover:text-violet-700"
