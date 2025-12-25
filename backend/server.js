@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT;
 
 // Middleware
 app.use(cors());
@@ -23,7 +23,7 @@ db.once('open', () => {
 });
 
 // JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'dpay-super-secret-jwt-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Generate unique IDs
 const generateUPIId = (username, mobile) => {
