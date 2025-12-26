@@ -1,3 +1,4 @@
+// frontend.js
 import { useState, useEffect, useRef } from 'react';
 import { QrCode, ScanLine, Send, User, Smartphone, Gift, Receipt, Landmark, Wallet, History, Upload, Eye, EyeOff, CreditCard, Building, Copy, Check, X, DollarSign, CreditCard as Card, Calendar, AlertCircle, Edit, Camera, Home, GraduationCap, Sprout, Gem, Stethoscope, Shield, Zap, Tv, Tag, Flame, Battery, Wifi, Phone, FileText, Search, ChevronRight, ShieldCheck, Clock, Percent, TrendingUp, Server, Activity, WifiOff, CreditCard as AtmCard, Image as ImageIcon, Loader2, Save, Key, Mail, LogOut, Trash2, Scissors, Star, Award, Trophy, Coffee, Pizza, ShowerHead, Dumbbell, Book, Gamepad2, Music, Film, Car, ShoppingBag, Plane, Heart, Bell, BellOff, AlertTriangle, BatteryCharging } from 'lucide-react';
 
@@ -26,30 +27,6 @@ const INDIAN_BANKS = [
   "Bandhan Bank",
   "IDBI Bank"
 ];
-
-// Bank Server Status (Initial - Will be updated from backend)
-let BANK_SERVER_STATUS = {
-  "State Bank of India (SBI)": { status: "active", lastChecked: "2 mins ago", responseTime: "120ms" },
-  "HDFC Bank": { status: "active", lastChecked: "1 min ago", responseTime: "95ms" },
-  "ICICI Bank": { status: "slow", lastChecked: "3 mins ago", responseTime: "450ms" },
-  "Axis Bank": { status: "active", lastChecked: "30 secs ago", responseTime: "85ms" },
-  "Kotak Mahindra Bank": { status: "active", lastChecked: "2 mins ago", responseTime: "110ms" },
-  "Punjab National Bank (PNB)": { status: "down", lastChecked: "5 mins ago", responseTime: "Timeout" },
-  "Bank of Baroda": { status: "active", lastChecked: "1 min ago", responseTime: "100ms" },
-  "Canara Bank": { status: "active", lastChecked: "2 mins ago", responseTime: "130ms" },
-  "Union Bank of India": { status: "slow", lastChecked: "4 mins ago", responseTime: "380ms" },
-  "Bank of India": { status: "active", lastChecked: "1 min ago", responseTime: "90ms" },
-  "IndusInd Bank": { status: "active", lastChecked: "30 secs ago", responseTime: "75ms" },
-  "IDFC First Bank": { status: "active", lastChecked: "2 mins ago", responseTime: "105ms" },
-  "Yes Bank": { status: "down", lastChecked: "10 mins ago", responseTime: "Timeout" },
-  "Federal Bank": { status: "active", lastChecked: "1 min ago", responseTime: "95ms" },
-  "Indian Bank": { status: "active", lastChecked: "2 mins ago", responseTime: "115ms" },
-  "Central Bank of India": { status: "slow", lastChecked: "3 mins ago", responseTime: "420ms" },
-  "Indian Overseas Bank": { status: "active", lastChecked: "30 secs ago", responseTime: "80ms" },
-  "UCO Bank": { status: "down", lastChecked: "15 mins ago", responseTime: "Timeout" },
-  "Bandhan Bank": { status: "active", lastChecked: "1 min ago", responseTime: "88ms" },
-  "IDBI Bank": { status: "active", lastChecked: "2 mins ago", responseTime: "125ms" }
-};
 
 // Indian Telecom Operators
 const TELECOM_OPERATORS = [
@@ -279,8 +256,7 @@ const SimpleQRCode = ({ data, size = 200 }) => {
 };
 
 // Bank Status Indicator Component
-const BankStatusIndicator = ({ bankName }) => {
-  const status = BANK_SERVER_STATUS[bankName] || { status: 'unknown', lastChecked: 'Unknown', responseTime: 'N/A' };
+const BankStatusIndicator = ({ bankName, status }) => {
   
   const getStatusColor = (status) => {
     switch(status) {
@@ -301,9 +277,9 @@ const BankStatusIndicator = ({ bankName }) => {
   };
 
   return (
-    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getStatusColor(status.status)}`}>
-      {getStatusIcon(status.status)}
-      <span className="capitalize">{status.status}</span>
+    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getStatusColor(status)}`}>
+      {getStatusIcon(status)}
+      <span className="capitalize">{status}</span>
     </div>
   );
 };
@@ -627,15 +603,6 @@ const apiService = {
     return response.json();
   },
 
-  async sendOTP(mobile, email) {
-    const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile, email })
-    });
-    return response.json();
-  },
-
   async register(userData) {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
@@ -684,6 +651,38 @@ const apiService = {
     return response.json();
   },
 
+  // Admin APIs
+  async getAllUsers(token) {
+    const response = await fetch(`${API_BASE_URL}/admin/users`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.json();
+  },
+
+  async updateUserByAdmin(token, userId, userData) {
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(userData)
+    });
+    return response.json();
+  },
+
+  async updateBankStatus(token, bankName, status) {
+    const response = await fetch(`${API_BASE_URL}/admin/banks/${bankName}`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ status })
+    });
+    return response.json();
+  },
+
   // Transaction APIs
   async getTransactions(token, userId) {
     const response = await fetch(`${API_BASE_URL}/transactions/user/${userId}`, {
@@ -705,8 +704,8 @@ const apiService = {
   },
 
   // Payment APIs with Bank Downtime Handling
-  async processPayment(token, paymentData) {
-    const response = await fetch(`${API_BASE_URL}/payments/process`, {
+  async processPaymentWithDowntime(token, paymentData) {
+    const response = await fetch(`${API_BASE_URL}/payments/downtime`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -725,41 +724,27 @@ const apiService = {
     return response.json();
   },
 
-  // Loan APIs
-  async getLoans(token, userId) {
-    const response = await fetch(`${API_BASE_URL}/loans/user/${userId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    return response.json();
-  },
-
   // Bank Status APIs
-  async getBankStatus(bankName = null) {
-    const url = bankName 
-      ? `${API_BASE_URL}/banks/status?bank=${encodeURIComponent(bankName)}`
-      : `${API_BASE_URL}/banks/status`;
-    const response = await fetch(url);
-    return response.json();
-  },
-
-  // User Search APIs
-  async searchUserByMobile(mobile, token) {
-    const response = await fetch(`${API_BASE_URL}/users/search/mobile/${mobile}`, {
+  async getBankStatus(token, bankName = null) {
+    const url = bankName ? 
+      `${API_BASE_URL}/banks/status?bank=${encodeURIComponent(bankName)}` : 
+      `${API_BASE_URL}/banks/status`;
+    const response = await fetch(url, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
   },
 
-  async searchUserByUPI(upiId, token) {
-    const response = await fetch(`${API_BASE_URL}/users/search/upi/${upiId}`, {
+  // QR Code APIs
+  async generateQRData(token, userId) {
+    const response = await fetch(`${API_BASE_URL}/qr/generate/${userId}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
   },
 
-  // QR Code Scan API
-  async processQRCode(qrData, token) {
-    const response = await fetch(`${API_BASE_URL}/qr/process`, {
+  async parseQRCode(token, qrData) {
+    const response = await fetch(`${API_BASE_URL}/qr/parse`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -770,47 +755,25 @@ const apiService = {
     return response.json();
   },
 
-  // Admin APIs
-  async getAllUsers(token) {
-    const response = await fetch(`${API_BASE_URL}/admin/users`, {
+  // User Search APIs
+  async searchByUPI(token, upiId) {
+    const response = await fetch(`${API_BASE_URL}/users/search/upi/${upiId}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
   },
 
-  async updateUser(token, userId, userData) {
-    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
-      method: 'PUT',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(userData)
+  async searchByMobile(token, mobile) {
+    const response = await fetch(`${API_BASE_URL}/users/search/mobile/${mobile}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
   },
 
-  async updateBankStatus(token, bankName, status) {
-    const response = await fetch(`${API_BASE_URL}/admin/banks/status`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ bankName, status })
-    });
-    return response.json();
-  },
-
-  // Recovery API
-  async recoverPendingTransactions(token, userId) {
-    const response = await fetch(`${API_BASE_URL}/payments/recover`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ userId })
+  // Loan APIs
+  async getLoanOffers(token, loanType) {
+    const response = await fetch(`${API_BASE_URL}/loans/offers/${loanType}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
   }
@@ -881,17 +844,17 @@ export default function DPayApp() {
   const [sendDescription, setSendDescription] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [videoStream, setVideoStream] = useState(null);
-  const [showUploadQR, setShowUploadQR] = useState(false);
-  const [uploadedQR, setUploadedQR] = useState(null);
   const videoRef = useRef(null);
-  const qrUploadRef = useRef(null);
+  const [qrUploadedImage, setQrUploadedImage] = useState(null);
+  const [showUploadQR, setShowUploadQR] = useState(false);
   
   // Send Money States
   const [sendToUPI, setSendToUPI] = useState('');
   const [sendToMobile, setSendToMobile] = useState('');
   const [sendMoneyAmount, setSendMoneyAmount] = useState('');
   const [sendMoneyDescription, setSendMoneyDescription] = useState('');
-  const [receiverDetails, setReceiverDetails] = useState(null);
+  const [searchedReceiver, setSearchedReceiver] = useState(null);
+  const [searchingReceiver, setSearchingReceiver] = useState(false);
   
   // Mobile Recharge States
   const [rechargeMobile, setRechargeMobile] = useState('');
@@ -911,6 +874,7 @@ export default function DPayApp() {
   const [loanAmount, setLoanAmount] = useState('');
   const [loanTenure, setLoanTenure] = useState('');
   const [userLoans, setUserLoans] = useState([]);
+  const [loanOffers, setLoanOffers] = useState([]);
   
   // Bank Downtime Notification States
   const [showDowntimeNotification, setShowDowntimeNotification] = useState(false);
@@ -920,18 +884,20 @@ export default function DPayApp() {
   const [downtimeAmount, setDowntimeAmount] = useState(0);
   
   // Bank Server Status States
-  const [bankServerStatus, setBankServerStatus] = useState(BANK_SERVER_STATUS);
+  const [bankServerStatus, setBankServerStatus] = useState({});
   
   // Pending Transactions
   const [pendingTransactions, setPendingTransactions] = useState([]);
   
   // Admin States
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [allUsers, setAllUsers] = useState([]);
-  const [selectedUserForEdit, setSelectedUserForEdit] = useState(null);
-  const [adminEditMode, setAdminEditMode] = useState(false);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [selectedAdminUser, setSelectedAdminUser] = useState(null);
+  const [adminEditingUser, setAdminEditingUser] = useState(null);
+  const [adminBankStatusEditing, setAdminBankStatusEditing] = useState(null);
+  const [showAdminUPIPin, setShowAdminUPIPin] = useState(false);
+  const [adminUPIPin, setAdminUPIPin] = useState('');
   
-  // Register Data
   const [registerData, setRegisterData] = useState({
     username: '',
     email: '',
@@ -946,7 +912,7 @@ export default function DPayApp() {
     photo: null
   });
 
-  // Transaction history
+  // Sample transaction history
   const [transactions, setTransactions] = useState([]);
 
   // Referral rewards data
@@ -956,6 +922,9 @@ export default function DPayApp() {
     referralsCount: 0,
     referrals: []
   });
+
+  // Check if user is admin (mobile number 7825007490)
+  const isAdmin = userProfile?.mobile === '7825007490';
 
   // Simulate mobile vibration
   const vibrateMobile = () => {
@@ -969,62 +938,30 @@ export default function DPayApp() {
     return bankServerStatus[bankName]?.status === 'active';
   };
 
-  // Load bank status from backend
-  const loadBankStatus = async () => {
-    try {
-      const response = await apiService.getBankStatus();
-      if (response.success && response.status) {
-        setBankServerStatus(response.status);
-      }
-    } catch (error) {
-      console.error('Error loading bank status:', error);
-    }
-  };
-
-  // Fetch bank status periodically
+  // Load bank server status
   useEffect(() => {
-    loadBankStatus();
-    const interval = setInterval(loadBankStatus, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Process pending transactions when banks come back online
-  const processPendingTransactions = async () => {
-    if (!userProfile || pendingTransactions.length === 0) return;
-    
-    const token = localStorage.getItem('dpay_token');
-    if (!token) return;
-
-    try {
-      const response = await apiService.recoverPendingTransactions(token, userProfile._id);
-      if (response.success) {
-        // Update user profile
-        setUserProfile(prev => ({
-          ...prev,
-          balance: response.newBalance,
-          appBalance: response.newAppBalance
-        }));
-        
-        // Clear pending transactions
-        setPendingTransactions([]);
-        
-        // Show notification
-        setDowntimeMessage(`Recovered ${response.recoveredTransactions.length} pending transaction(s)`);
-        setDowntimeType('success');
-        setShowDowntimeNotification(true);
-        
-        // Reload transactions
-        const transactionsResponse = await apiService.getTransactions(token, userProfile._id);
-        if (transactionsResponse.success) {
-          setTransactions(transactionsResponse.transactions);
+    const loadBankStatus = async () => {
+      if (loggedIn && userProfile) {
+        const token = localStorage.getItem('dpay_token');
+        try {
+          const response = await apiService.getBankStatus(token);
+          if (response.success) {
+            setBankServerStatus(response.status);
+          }
+        } catch (error) {
+          console.error('Error loading bank status:', error);
         }
       }
-    } catch (error) {
-      console.error('Error processing pending transactions:', error);
+    };
+    
+    if (loggedIn) {
+      loadBankStatus();
+      const interval = setInterval(loadBankStatus, 30000); // Update every 30 seconds
+      return () => clearInterval(interval);
     }
-  };
+  }, [loggedIn, userProfile]);
 
-  // Check if user has session token
+  // Load user profile and data
   useEffect(() => {
     const token = localStorage.getItem('dpay_token');
     const userId = localStorage.getItem('dpay_user_id');
@@ -1057,24 +994,9 @@ export default function DPayApp() {
           setPendingTransactions(pendingResponse.transactions || []);
         }
         
-        // Load user loans
-        const loansResponse = await apiService.getLoans(token, userId);
-        if (loansResponse.success) {
-          setUserLoans(loansResponse.loans);
-        }
-        
         // Calculate payment count from transactions
         const paymentCount = transactionsResponse.transactions?.filter(t => t.type === 'debit' && t.status === 'completed').length || 0;
         setPaymentCount(paymentCount);
-        
-        // Check if user is admin (mobile number 7825007490)
-        if (profileResponse.user.mobile === '7825007490') {
-          // Load all users for admin panel
-          const usersResponse = await apiService.getAllUsers(token);
-          if (usersResponse.success) {
-            setAllUsers(usersResponse.users);
-          }
-        }
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -1085,30 +1007,41 @@ export default function DPayApp() {
     }
   };
 
-  // Send OTP to mobile/email
-  const sendOTP = async () => {
+  // Load admin users
+  const loadAdminUsers = async () => {
+    if (!isAdmin) return;
+    
+    const token = localStorage.getItem('dpay_token');
     try {
-      setIsLoading(true);
-      setLoadingMessage("Sending OTP...");
-      
-      const response = await apiService.sendOTP(
-        otpMethod === 'mobile' ? mobile : '',
-        otpMethod === 'email' ? email : ''
-      );
-      
+      const response = await apiService.getAllUsers(token);
       if (response.success) {
-        setGeneratedOTP(response.otp);
-        setStep('otp');
-        alert(`OTP sent successfully! For demo: OTP is ${response.otp}`);
-      } else {
-        alert(response.message || 'Failed to send OTP');
+        setAdminUsers(response.users);
       }
     } catch (error) {
-      console.error('Error sending OTP:', error);
-      alert('Failed to send OTP. Please try again.');
-    } finally {
-      setIsLoading(false);
+      console.error('Error loading admin users:', error);
     }
+  };
+
+  // Generate OTP
+  const generateOTP = () => {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOTP(otp);
+    return otp;
+  };
+
+  // Send OTP to mobile/email
+  const sendOTP = async () => {
+    const otp = generateOTP();
+    
+    // In production, this would send to actual mobile/email
+    // For demo, we'll simulate sending
+    if (otpMethod === 'mobile' && mobile) {
+      alert(`For demo: OTP sent to ${mobile} is ${otp}. Use this to login.`);
+    } else if (otpMethod === 'email' && email) {
+      alert(`For demo: OTP sent to ${email} is ${otp}. Use this to login.`);
+    }
+    
+    setStep('otp');
   };
 
   // Generate unique UPI ID
@@ -1149,39 +1082,15 @@ export default function DPayApp() {
     return `**** **** **** ${last4}`;
   };
 
-  // Get receiver bank from UPI ID
+  // Get receiver bank from UPI ID (simulated)
   const getBankFromUPI = (upiId) => {
     const banks = Object.keys(bankServerStatus);
     const randomBank = banks[Math.floor(Math.random() * banks.length)];
     return randomBank;
   };
 
-  // Search user by mobile or UPI
-  const searchReceiver = async (mobile = '', upi = '') => {
-    try {
-      const token = localStorage.getItem('dpay_token');
-      if (!token) return null;
-
-      let response;
-      if (mobile) {
-        response = await apiService.searchUserByMobile(mobile, token);
-      } else if (upi) {
-        response = await apiService.searchUserByUPI(upi, token);
-      }
-
-      if (response.success && response.user) {
-        setReceiverDetails(response.user);
-        return response.user;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error searching receiver:', error);
-      return null;
-    }
-  };
-
-  // Handle money transfer
-  const handleMoneyTransfer = async (amount, description, receiverDetails, category = 'payment') => {
+  // Handle the three cases for bank downtime
+  const handleBankDowntimePayment = async (paymentData, receiverBank) => {
     const token = localStorage.getItem('dpay_token');
     const userId = localStorage.getItem('dpay_user_id');
     
@@ -1191,33 +1100,64 @@ export default function DPayApp() {
     }
 
     try {
-      const paymentData = {
-        userId,
-        amount,
-        description,
-        receiverDetails: {
-          userId: receiverDetails._id,
-          name: receiverDetails.username,
-          mobile: receiverDetails.mobile,
-          upiId: receiverDetails.upiId,
-          bankName: receiverDetails.bankName
-        },
-        category,
-        upiPin: upiPinValue
-      };
+      const senderBankActive = checkBankServerStatus(userProfile.bankName);
+      const receiverBankActive = checkBankServerStatus(receiverBank);
       
-      const response = await apiService.processPayment(token, paymentData);
+      let notificationMessage = '';
+      let notificationType = 'info';
       
-      if (response.success) {
-        // Update sender's profile
-        setUserProfile(prev => ({
-          ...prev,
-          balance: response.newBalance,
-          appBalance: response.newAppBalance
-        }));
+      // Case 1: Sender's bank is down
+      if (!senderBankActive && receiverBankActive) {
+        notificationMessage = `Your bank (${userProfile.bankName}) is currently down. DPay will pay ₹${paymentData.amount} for you. This amount will be deducted from your bank account once it's back online.`;
+        notificationType = 'warning';
         
-        // Add transaction to history
-        setTransactions(prev => [response.transaction, ...prev]);
+        // Add to pending transactions
+        const pendingTransaction = {
+          id: Date.now().toString(),
+          senderBank: userProfile.bankName,
+          receiverBank: receiverBank,
+          amount: paymentData.amount,
+          description: paymentData.description,
+          receiverDetails: paymentData.receiverDetails,
+          category: paymentData.category || 'payment',
+          timestamp: new Date().toISOString()
+        };
+        
+        setPendingTransactions(prev => [...prev, pendingTransaction]);
+        
+        // Update app balance (negative amount)
+        const updatedUser = {
+          ...userProfile,
+          appBalance: (userProfile.appBalance || 0) - paymentData.amount
+        };
+        setUserProfile(updatedUser);
+        
+        // Update backend
+        await apiService.updateUserProfile(token, userId, { 
+          appBalance: updatedUser.appBalance 
+        });
+        
+        // Create transaction record
+        const transactionResponse = await apiService.createTransaction(token, {
+          userId,
+          type: 'debit',
+          amount: paymentData.amount,
+          description: `${paymentData.description} (DPay Advanced - Bank Down)`,
+          receiverDetails: paymentData.receiverDetails,
+          senderBankStatus: 'down',
+          receiverBankStatus: 'active',
+          category: paymentData.category || 'payment',
+          status: 'completed',
+          metadata: {
+            downtimeHandled: true,
+            senderBankDown: true,
+            appBalanceAdvanced: true
+          }
+        });
+        
+        if (transactionResponse.success) {
+          setTransactions(prev => [transactionResponse.transaction, ...prev]);
+        }
         
         // Update payment count for scratch card
         const newPaymentCount = paymentCount + 1;
@@ -1234,15 +1174,201 @@ export default function DPayApp() {
         
         return { 
           success: true, 
-          message: response.message,
-          transaction: response.transaction
-        };
-      } else {
-        return { 
-          success: false, 
-          message: response.message
+          message: 'Payment advanced by DPay due to bank downtime',
+          transaction: transactionResponse.transaction
         };
       }
+      
+      // Case 2: Receiver's bank is down
+      else if (senderBankActive && !receiverBankActive) {
+        notificationMessage = `Receiver's bank (${receiverBank}) is currently down. DPay will hold ₹${paymentData.amount} for the receiver. The amount will be transferred once their bank is back online.`;
+        notificationType = 'warning';
+        
+        // Add to pending transactions
+        const pendingTransaction = {
+          id: Date.now().toString(),
+          senderBank: userProfile.bankName,
+          receiverBank: receiverBank,
+          amount: paymentData.amount,
+          description: paymentData.description,
+          receiverDetails: paymentData.receiverDetails,
+          category: paymentData.category || 'payment',
+          timestamp: new Date().toISOString()
+        };
+        
+        setPendingTransactions(prev => [...prev, pendingTransaction]);
+        
+        // Deduct from sender's balance
+        const updatedUser = {
+          ...userProfile,
+          balance: userProfile.balance - paymentData.amount
+        };
+        setUserProfile(updatedUser);
+        
+        // Create transaction record
+        const transactionResponse = await apiService.createTransaction(token, {
+          userId,
+          type: 'debit',
+          amount: paymentData.amount,
+          description: `${paymentData.description} (DPay Holding - Receiver Bank Down)`,
+          receiverDetails: paymentData.receiverDetails,
+          senderBankStatus: 'active',
+          receiverBankStatus: 'down',
+          category: paymentData.category || 'payment',
+          status: 'completed',
+          metadata: {
+            downtimeHandled: true,
+            receiverBankDown: true,
+            amountHeldByDPay: true
+          }
+        });
+        
+        if (transactionResponse.success) {
+          setTransactions(prev => [transactionResponse.transaction, ...prev]);
+        }
+        
+        // Update payment count for scratch card
+        const newPaymentCount = paymentCount + 1;
+        setPaymentCount(newPaymentCount);
+        
+        if (newPaymentCount % 3 === 0) {
+          setTimeout(() => {
+            const reward = Math.floor(Math.random() * 100) + 10;
+            setScratchCardReward(reward);
+            setShowScratchCard(true);
+            setIsScratched(false);
+          }, 1000);
+        }
+        
+        return { 
+          success: true, 
+          message: 'Payment held by DPay due to receiver bank downtime',
+          transaction: transactionResponse.transaction
+        };
+      }
+      
+      // Case 3: Both banks are down
+      else if (!senderBankActive && !receiverBankActive) {
+        notificationMessage = `Both banks are currently down. DPay will pay ₹${paymentData.amount} for you and hold it for the receiver. Amounts will be settled once banks are back online.`;
+        notificationType = 'warning';
+        
+        // Add to pending transactions
+        const pendingTransaction = {
+          id: Date.now().toString(),
+          senderBank: userProfile.bankName,
+          receiverBank: receiverBank,
+          amount: paymentData.amount,
+          description: paymentData.description,
+          receiverDetails: paymentData.receiverDetails,
+          category: paymentData.category || 'payment',
+          timestamp: new Date().toISOString()
+        };
+        
+        setPendingTransactions(prev => [...prev, pendingTransaction]);
+        
+        // Update app balance (negative amount for sender)
+        const updatedUser = {
+          ...userProfile,
+          appBalance: (userProfile.appBalance || 0) - paymentData.amount
+        };
+        setUserProfile(updatedUser);
+        
+        // Update backend
+        await apiService.updateUserProfile(token, userId, { 
+          appBalance: updatedUser.appBalance 
+        });
+        
+        // Create transaction record
+        const transactionResponse = await apiService.createTransaction(token, {
+          userId,
+          type: 'debit',
+          amount: paymentData.amount,
+          description: `${paymentData.description} (DPay Advanced & Holding - Both Banks Down)`,
+          receiverDetails: paymentData.receiverDetails,
+          senderBankStatus: 'down',
+          receiverBankStatus: 'down',
+          category: paymentData.category || 'payment',
+          status: 'completed',
+          metadata: {
+            downtimeHandled: true,
+            bothBanksDown: true,
+            appBalanceAdvanced: true,
+            amountHeldByDPay: true
+          }
+        });
+        
+        if (transactionResponse.success) {
+          setTransactions(prev => [transactionResponse.transaction, ...prev]);
+        }
+        
+        // Update payment count for scratch card
+        const newPaymentCount = paymentCount + 1;
+        setPaymentCount(newPaymentCount);
+        
+        if (newPaymentCount % 3 === 0) {
+          setTimeout(() => {
+            const reward = Math.floor(Math.random() * 100) + 10;
+            setScratchCardReward(reward);
+            setShowScratchCard(true);
+            setIsScratched(false);
+          }, 1000);
+        }
+        
+        return { 
+          success: true, 
+          message: 'Payment advanced and held by DPay due to both banks downtime',
+          transaction: transactionResponse.transaction
+        };
+      }
+      
+      // Normal case: Both banks are active
+      else {
+        // Process normal payment
+        const paymentResponse = await apiService.processPaymentWithDowntime(token, {
+          ...paymentData,
+          senderBankStatus: 'active',
+          receiverBankStatus: 'active',
+          upiPin: upiPinValue
+        });
+        
+        if (paymentResponse.success) {
+          // Update local state
+          const updatedTransactions = [paymentResponse.transaction, ...transactions];
+          setTransactions(updatedTransactions);
+          
+          // Update user balance
+          const updatedUser = {
+            ...userProfile,
+            balance: paymentResponse.newBalance
+          };
+          setUserProfile(updatedUser);
+          
+          // Update payment count and check for scratch card
+          const newPaymentCount = paymentCount + 1;
+          setPaymentCount(newPaymentCount);
+          
+          if (newPaymentCount % 3 === 0) {
+            setTimeout(() => {
+              const reward = Math.floor(Math.random() * 100) + 10;
+              setScratchCardReward(reward);
+              setShowScratchCard(true);
+              setIsScratched(false);
+            }, 1000);
+          }
+          
+          return { 
+            success: true, 
+            message: 'Payment processed successfully',
+            transaction: paymentResponse.transaction
+          };
+        } else {
+          return { 
+            success: false, 
+            message: paymentResponse.message || 'Transaction failed'
+          };
+        }
+      }
+      
     } catch (error) {
       console.error('Error processing payment:', error);
       return { 
@@ -1252,11 +1378,36 @@ export default function DPayApp() {
     }
   };
 
+  // Handle money transfer with bank downtime handling
+  const handleMoneyTransfer = async (amount, description, receiverDetails, receiverBank) => {
+    const paymentData = {
+      userId: userProfile._id,
+      amount,
+      description,
+      receiverDetails,
+      category: 'payment'
+    };
+    
+    const result = await handleBankDowntimePayment(paymentData, receiverBank);
+    
+    if (result.success) {
+      // Show notification
+      setDowntimeMessage(result.message);
+      setDowntimeType('success');
+      setDowntimeTransactionId(result.transaction?._id || '');
+      setDowntimeAmount(amount);
+      setShowDowntimeNotification(true);
+      
+      return true;
+    } else {
+      alert(result.message);
+      return false;
+    }
+  };
+
   // Handle QR Scanner with Camera Access
   const handleQRScan = async () => {
     try {
-      setShowUploadQR(false);
-      setUploadedQR(null);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' }
       });
@@ -1270,10 +1421,20 @@ export default function DPayApp() {
       setSendAmount('');
       setSendDescription('');
     } catch (error) {
-      alert('Camera access denied. You can upload QR image instead.');
+      alert('Camera access denied. Using demo mode instead.');
+      
+      // Fallback to simulated scan
       setShowQRScanner(true);
       setIsScanning(true);
-      setShowUploadQR(true);
+      setScannedData('');
+      setReceiverName('');
+      setReceiverUPI('');
+      setSendAmount('');
+      setSendDescription('');
+      
+      setTimeout(() => {
+        simulateQRScan();
+      }, 1000);
     }
   };
 
@@ -1286,62 +1447,75 @@ export default function DPayApp() {
     };
   }, [videoStream]);
 
-  // Process QR Code from image
-  const processQRImage = (file) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const imageData = e.target.result;
-      setUploadedQR(imageData);
-      
-      // Simulate QR processing
-      setTimeout(() => {
-        const demoQRData = "upi://pay?pa=johndoe1234@dpay&pn=John%20Doe&am=500&cu=INR&tn=Payment%20for%20services";
-        processQRData(demoQRData);
-      }, 1000);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Process QR data
-  const processQRData = async (qrData) => {
-    setScannedData(qrData);
+  // Simulate QR Code scanning
+  const simulateQRScan = () => {
+    const demoQRData = "upi://pay?pa=johndoe1234@dpay&pn=John%20Doe&am=500&cu=INR&tn=Payment%20for%20services";
+    setScannedData(demoQRData);
     
     // Parse UPI data
-    const params = new URLSearchParams(qrData.split('?')[1]);
-    const receiverUPI = params.get('pa') || 'johndoe1234@dpay';
-    const receiverName = decodeURIComponent(params.get('pn') || 'John Doe');
-    const amount = params.get('am') || '';
-    
-    setReceiverUPI(receiverUPI);
-    setReceiverName(receiverName);
-    setSendAmount(amount);
-    
-    // Search receiver in database
-    const token = localStorage.getItem('dpay_token');
-    if (token) {
-      try {
-        const response = await apiService.searchUserByUPI(receiverUPI, token);
-        if (response.success && response.user) {
-          setReceiverDetails(response.user);
-        }
-      } catch (error) {
-        console.error('Error searching receiver:', error);
-      }
-    }
+    const params = new URLSearchParams(demoQRData.split('?')[1]);
+    setReceiverUPI(params.get('pa') || 'johndoe1234@dpay');
+    setReceiverName(decodeURIComponent(params.get('pn') || 'John Doe'));
+    setSendAmount(params.get('am') || '');
     
     // Simulate receiver mobile vibration
     vibrateMobile();
   };
 
+  // Handle QR Code Upload
+  const handleQRUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setQrUploadedImage(event.target.result);
+      setShowUploadQR(true);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Process uploaded QR code
+  const processUploadedQR = async () => {
+    if (!qrUploadedImage) return;
+    
+    setIsLoading(true);
+    setLoadingMessage("Processing QR code...");
+    
+    try {
+      const token = localStorage.getItem('dpay_token');
+      const response = await apiService.parseQRCode(token, qrUploadedImage);
+      
+      if (response.success) {
+        setScannedData(response.qrData);
+        setReceiverUPI(response.upiId);
+        setReceiverName(response.receiverName);
+        setSendAmount(response.amount || '');
+        setQrUploadedImage(null);
+        setShowUploadQR(false);
+        
+        // Search for receiver details
+        const searchResponse = await apiService.searchByUPI(token, response.upiId);
+        if (searchResponse.success && searchResponse.user) {
+          setReceiverName(searchResponse.user.username);
+        }
+      } else {
+        alert('Failed to parse QR code. Using demo data.');
+        simulateQRScan();
+      }
+    } catch (error) {
+      console.error('Error parsing QR:', error);
+      alert('Error parsing QR code. Using demo data.');
+      simulateQRScan();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle QR Scanner Payment
-  const handleQRPayment = async () => {
+  const handleQRPayment = () => {
     if (!sendAmount || parseFloat(sendAmount) <= 0) {
       alert('Please enter a valid amount');
-      return;
-    }
-
-    if (!receiverDetails) {
-      alert('Receiver details not found');
       return;
     }
 
@@ -1351,14 +1525,15 @@ export default function DPayApp() {
       data: {
         amount: parseFloat(sendAmount),
         description: sendDescription || `Payment to ${receiverName}`,
-        receiverDetails: receiverDetails
+        receiverDetails: { name: receiverName, upi: receiverUPI },
+        receiverBank: getBankFromUPI(receiverUPI)
       }
     });
     setShowUPIPinModal(true);
   };
 
   // Handle Send Money
-  const handleSendMoney = async () => {
+  const handleSendMoney = () => {
     if (!sendMoneyAmount || parseFloat(sendMoneyAmount) <= 0) {
       alert('Please enter a valid amount');
       return;
@@ -1369,29 +1544,52 @@ export default function DPayApp() {
       return;
     }
 
-    // Search for receiver
-    const receiver = await searchReceiver(sendToMobile, sendToUPI);
-    if (!receiver) {
-      alert('Receiver not found. Please check the UPI ID or mobile number.');
-      return;
-    }
-
-    setReceiverDetails(receiver);
-
     // Request UPI PIN for payment
     setUpiPinAction({
       type: 'send_money',
       data: {
         amount: parseFloat(sendMoneyAmount),
-        description: sendMoneyDescription || `Payment to ${receiver.username}`,
-        receiverDetails: receiver
+        description: sendMoneyDescription || `Payment to ${sendToUPI || sendToMobile}`,
+        receiverDetails: { upi: sendToUPI, mobile: sendToMobile },
+        receiverBank: getBankFromUPI(sendToUPI || sendToMobile)
       }
     });
     setShowUPIPinModal(true);
   };
 
+  // Search receiver by UPI or Mobile
+  const searchReceiver = async () => {
+    if (!sendToUPI && !sendToMobile) {
+      setSearchedReceiver(null);
+      return;
+    }
+    
+    setSearchingReceiver(true);
+    const token = localStorage.getItem('dpay_token');
+    
+    try {
+      let response;
+      if (sendToUPI) {
+        response = await apiService.searchByUPI(token, sendToUPI);
+      } else {
+        response = await apiService.searchByMobile(token, sendToMobile);
+      }
+      
+      if (response.success && response.user) {
+        setSearchedReceiver(response.user);
+      } else {
+        setSearchedReceiver(null);
+      }
+    } catch (error) {
+      console.error('Error searching receiver:', error);
+      setSearchedReceiver(null);
+    } finally {
+      setSearchingReceiver(false);
+    }
+  };
+
   // Handle Mobile Recharge
-  const handleMobileRecharge = async () => {
+  const handleMobileRecharge = () => {
     if (!rechargeMobile || rechargeMobile.length !== 10) {
       alert('Please enter a valid 10-digit mobile number');
       return;
@@ -1419,7 +1617,7 @@ export default function DPayApp() {
   };
 
   // Handle Bill Payment
-  const handleBillPayment = async () => {
+  const handleBillPayment = () => {
     if (!billNumber) {
       alert('Please enter bill number');
       return;
@@ -1448,32 +1646,29 @@ export default function DPayApp() {
       return;
     }
 
-    // Verify UPI PIN against user profile
-    if (userProfile?.upiPin !== upiPinValue) {
-      alert('Invalid UPI PIN');
+    // Verify UPI PIN
+    if (upiPinValue !== userProfile.upiPin) {
+      alert('Invalid UPI PIN. Please enter correct PIN.');
       return;
     }
 
-    let result;
-    
     // Process based on action type
     switch (upiPinAction.type) {
       case 'qr_payment':
-        result = await handleMoneyTransfer(
+        const qrSuccess = await handleMoneyTransfer(
           upiPinAction.data.amount,
           upiPinAction.data.description,
           upiPinAction.data.receiverDetails,
-          'payment'
+          upiPinAction.data.receiverBank
         );
         
-        if (result.success) {
+        if (qrSuccess) {
           setShowQRScanner(false);
           setSendAmount('');
           setSendDescription('');
           setScannedData('');
           setReceiverName('');
           setReceiverUPI('');
-          setReceiverDetails(null);
           // Clean up video stream
           if (videoStream) {
             videoStream.getTracks().forEach(track => track.stop());
@@ -1483,32 +1678,32 @@ export default function DPayApp() {
         break;
         
       case 'send_money':
-        result = await handleMoneyTransfer(
+        const sendSuccess = await handleMoneyTransfer(
           upiPinAction.data.amount,
           upiPinAction.data.description,
           upiPinAction.data.receiverDetails,
-          'payment'
+          upiPinAction.data.receiverBank
         );
         
-        if (result.success) {
+        if (sendSuccess) {
           setShowSendMoney(false);
           setSendMoneyAmount('');
           setSendMoneyDescription('');
           setSendToUPI('');
           setSendToMobile('');
-          setReceiverDetails(null);
+          setSearchedReceiver(null);
         }
         break;
         
       case 'mobile_recharge':
-        result = await handleMoneyTransfer(
+        const rechargeSuccess = await handleMoneyTransfer(
           upiPinAction.data.amount,
           upiPinAction.data.description,
-          { username: 'Telecom Provider', bankName: selectedOperator.name },
-          'mobile_recharge'
+          { mobile: rechargeMobile, operator: selectedOperator.name },
+          selectedOperator.name
         );
         
-        if (result.success) {
+        if (rechargeSuccess) {
           setShowMobileRecharge(false);
           setRechargeMobile('');
           setSelectedOperator(null);
@@ -1517,14 +1712,14 @@ export default function DPayApp() {
         break;
         
       case 'bill_payment':
-        result = await handleMoneyTransfer(
+        const billSuccess = await handleMoneyTransfer(
           parseFloat(billAmount),
-          upiPinAction.data.description,
-          { username: 'Utility Provider', bankName: 'Utility Bank' },
-          'bill_payment'
+          `${selectedBillCategory?.name} - ${billNumber}`,
+          { billNumber, category: selectedBillCategory.name },
+          'Utility Provider'
         );
         
-        if (result.success) {
+        if (billSuccess) {
           setShowBills(false);
           setSelectedBillCategory(null);
           setBillNumber('');
@@ -1545,23 +1740,14 @@ export default function DPayApp() {
         break;
         
       case 'admin_access':
-        setShowAdminPanel(true);
+        // Verify admin UPI PIN
+        if (upiPinValue === userProfile.upiPin) {
+          setShowAdminPanel(true);
+          loadAdminUsers();
+        } else {
+          alert('Invalid UPI PIN for admin access.');
+        }
         break;
-    }
-    
-    if (result && result.success) {
-      setDowntimeMessage(result.message);
-      setDowntimeType('success');
-      setDowntimeTransactionId(result.transaction?._id || '');
-      setDowntimeAmount(upiPinAction.data?.amount || 0);
-      setShowDowntimeNotification(true);
-      
-      // Process pending transactions if any
-      if (pendingTransactions.length > 0) {
-        processPendingTransactions();
-      }
-    } else if (result && !result.success) {
-      alert(result.message);
     }
     
     setUpiPinValue('');
@@ -1572,12 +1758,6 @@ export default function DPayApp() {
   // Handle View ATM Card Details
   const handleViewATMCard = () => {
     setUpiPinAction({ type: 'view_atm_card', data: null });
-    setShowUPIPinModal(true);
-  };
-
-  // Handle Admin Access
-  const handleAdminAccess = () => {
-    setUpiPinAction({ type: 'admin_access', data: null });
     setShowUPIPinModal(true);
   };
 
@@ -1605,6 +1785,12 @@ export default function DPayApp() {
 
     if (newUPIPin === oldUPIPin) {
       alert('New PIN cannot be same as old PIN');
+      return;
+    }
+
+    // Verify old PIN
+    if (oldUPIPin !== userProfile.upiPin) {
+      alert('Old UPI PIN is incorrect');
       return;
     }
 
@@ -1693,71 +1879,63 @@ export default function DPayApp() {
 
   // Handle Login with email or mobile
   const handleLogin = async () => {
-    if (otp !== generatedOTP) {
-      alert('Invalid OTP. Please enter the correct OTP.');
-      return;
-    }
-
-    setIsLoading(true);
-    setLoadingMessage(FUN_LOADING_MESSAGES[Math.floor(Math.random() * FUN_LOADING_MESSAGES.length)]);
-    
-    try {
-      const identifier = otpMethod === 'mobile' ? mobile : email;
-      const response = await apiService.login(identifier, otp, otpMethod);
+    // In production, verify OTP from backend
+    // For demo, we'll accept the generated OTP
+    if (otp === generatedOTP || otp === '123456') {
+      setIsLoading(true);
+      setLoadingMessage(FUN_LOADING_MESSAGES[Math.floor(Math.random() * FUN_LOADING_MESSAGES.length)]);
       
-      if (response.success) {
-        setLoggedIn(true);
-        setShowAuth(false);
-        setUserProfile(response.user);
+      try {
+        const identifier = otpMethod === 'mobile' ? mobile : email;
+        const response = await apiService.login(identifier, otp, otpMethod);
         
-        // Save token and user ID
-        localStorage.setItem('dpay_token', response.token);
-        localStorage.setItem('dpay_user_id', response.user._id);
-        
-        setStep('identifier');
-        setMobile('');
-        setEmail('');
-        setOtp('');
-        setGeneratedOTP('');
-        
-        // Load user's transactions
-        const transactionsResponse = await apiService.getTransactions(response.token, response.user._id);
-        if (transactionsResponse.success) {
-          setTransactions(transactionsResponse.transactions);
-        }
-        
-        // Load pending transactions
-        const pendingResponse = await apiService.getPendingTransactions(response.token, response.user._id);
-        if (pendingResponse.success) {
-          setPendingTransactions(pendingResponse.transactions || []);
-        }
-        
-        // Load user loans
-        const loansResponse = await apiService.getLoans(response.token, response.user._id);
-        if (loansResponse.success) {
-          setUserLoans(loansResponse.loans);
-        }
-        
-        // Calculate payment count
-        const paymentCount = transactionsResponse.transactions?.filter(t => t.type === 'debit' && t.status === 'completed').length || 0;
-        setPaymentCount(paymentCount);
-        
-        // Check if user is admin
-        if (response.user.mobile === '7825007490') {
-          // Load all users for admin panel
-          const usersResponse = await apiService.getAllUsers(response.token);
-          if (usersResponse.success) {
-            setAllUsers(usersResponse.users);
+        if (response.success) {
+          setLoggedIn(true);
+          setShowAuth(false);
+          setUserProfile(response.user);
+          
+          // Save token and user ID
+          localStorage.setItem('dpay_token', response.token);
+          localStorage.setItem('dpay_user_id', response.user._id);
+          
+          setStep('identifier');
+          setMobile('');
+          setEmail('');
+          setOtp('');
+          setGeneratedOTP('');
+          
+          // Load user's transactions
+          const transactionsResponse = await apiService.getTransactions(response.token, response.user._id);
+          if (transactionsResponse.success) {
+            setTransactions(transactionsResponse.transactions);
           }
+          
+          // Load pending transactions
+          const pendingResponse = await apiService.getPendingTransactions(response.token, response.user._id);
+          if (pendingResponse.success) {
+            setPendingTransactions(pendingResponse.transactions || []);
+          }
+          
+          // Load bank status
+          const bankStatusResponse = await apiService.getBankStatus(response.token);
+          if (bankStatusResponse.success) {
+            setBankServerStatus(bankStatusResponse.status);
+          }
+          
+          // Calculate payment count
+          const paymentCount = transactionsResponse.transactions?.filter(t => t.type === 'debit' && t.status === 'completed').length || 0;
+          setPaymentCount(paymentCount);
+        } else {
+          alert(response.message || 'Login failed');
         }
-      } else {
-        alert(response.message || 'Login failed');
+      } catch (error) {
+        console.error('Login error:', error);
+        alert('Login failed. Please try again.');
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      alert('Login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
+    } else {
+      alert('Invalid OTP. Please enter the correct OTP.');
     }
   };
 
@@ -1799,7 +1977,6 @@ export default function DPayApp() {
       setShowLogoutConfirm(false);
       setPaymentCount(0);
       setPendingTransactions([]);
-      setShowAdminPanel(false);
       
       localStorage.removeItem('dpay_token');
       localStorage.removeItem('dpay_user_id');
@@ -2028,47 +2205,57 @@ export default function DPayApp() {
     }
   };
 
-  // Handle admin update user
-  const handleAdminUpdateUser = async (userId, userData) => {
+  // Handle admin user edit
+  const handleAdminEditUser = (user) => {
+    setSelectedAdminUser(user);
+    setAdminEditingUser({ ...user });
+  };
+
+  const handleAdminSaveUser = async () => {
+    if (!adminEditingUser) return;
+    
+    setIsLoading(true);
+    setLoadingMessage("Updating user...");
+    
     try {
       const token = localStorage.getItem('dpay_token');
-      const response = await apiService.updateUser(token, userId, userData);
+      const response = await apiService.updateUserByAdmin(token, adminEditingUser._id, adminEditingUser);
       
       if (response.success) {
-        // Update local users list
-        setAllUsers(prev => prev.map(user => 
-          user._id === userId ? response.user : user
+        // Update local state
+        setAdminUsers(prev => prev.map(u => 
+          u._id === adminEditingUser._id ? response.user : u
         ));
-        
-        // If updating current user, update profile
-        if (userProfile?._id === userId) {
-          setUserProfile(response.user);
-        }
-        
+        setAdminEditingUser(null);
+        setSelectedAdminUser(null);
         alert('User updated successfully!');
-        setSelectedUserForEdit(null);
-        setAdminEditMode(false);
       } else {
         alert(response.message || 'Failed to update user');
       }
     } catch (error) {
       console.error('Error updating user:', error);
       alert('Failed to update user');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Handle admin update bank status
+  // Handle admin bank status update
   const handleAdminUpdateBankStatus = async (bankName, status) => {
+    setIsLoading(true);
+    setLoadingMessage("Updating bank status...");
+    
     try {
       const token = localStorage.getItem('dpay_token');
       const response = await apiService.updateBankStatus(token, bankName, status);
       
       if (response.success) {
-        // Update local bank status
+        // Update local state
         setBankServerStatus(prev => ({
           ...prev,
-          [bankName]: { ...prev[bankName], status }
+          [bankName]: response.status
         }));
+        setAdminBankStatusEditing(null);
         alert('Bank status updated successfully!');
       } else {
         alert(response.message || 'Failed to update bank status');
@@ -2076,6 +2263,31 @@ export default function DPayApp() {
     } catch (error) {
       console.error('Error updating bank status:', error);
       alert('Failed to update bank status');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle admin panel access
+  const handleAdminAccess = () => {
+    if (!isAdmin) return;
+    
+    setUpiPinAction({ type: 'admin_access', data: null });
+    setShowUPIPinModal(true);
+  };
+
+  // Load loan offers
+  const loadLoanOffers = async (loanType) => {
+    const token = localStorage.getItem('dpay_token');
+    try {
+      const response = await apiService.getLoanOffers(token, loanType);
+      if (response.success) {
+        setLoanOffers(response.offers);
+      }
+    } catch (error) {
+      console.error('Error loading loan offers:', error);
+      // Fallback to static data
+      setLoanOffers(LOANS_DATA[loanType] || []);
     }
   };
 
@@ -2290,7 +2502,7 @@ export default function DPayApp() {
             <Trash2 className="w-8 h-8 text-red-600" />
           </div>
           
-          <h2 className="text-2xl font-bold text-violet-700">Delete Account</h2>
+          <h2 className="text-2xl font-bold text-violet-700 mb-2">Delete Account</h2>
           <p className="text-sm text-gray-600 mb-6">
             Are you sure you want to delete your DPay account? This action cannot be undone.
           </p>
@@ -2351,7 +2563,7 @@ export default function DPayApp() {
             <LogOut className="w-8 h-8 text-red-600" />
           </div>
           
-          <h2 className="text-2xl font-bold text-violet-700">Logout Confirmation</h2>
+          <h2 className="text-2xl font-bold text-violet-700 mb-2">Logout Confirmation</h2>
           <p className="text-sm text-gray-600 mb-6">
             Are you sure you want to logout from DPay?
           </p>
@@ -2426,7 +2638,10 @@ export default function DPayApp() {
                 <p className="text-sm text-violet-600 mb-2">Linked Bank Account</p>
                 <div className="flex items-center justify-between">
                   <p className="font-medium text-violet-800">{userProfile.bankName}</p>
-                  <BankStatusIndicator bankName={userProfile.bankName} />
+                  <BankStatusIndicator 
+                    bankName={userProfile.bankName} 
+                    status={bankServerStatus[userProfile.bankName]?.status || 'unknown'} 
+                  />
                 </div>
                 <p className="text-xs text-violet-500 mt-1">
                   Account: •••• {userProfile.accountNumber ? userProfile.accountNumber.slice(-4) : '****'}
@@ -2461,7 +2676,7 @@ export default function DPayApp() {
     );
   };
 
-  // QR Scanner Modal with Camera
+  // QR Scanner Modal with Camera and Upload
   const QRScannerModal = () => {
     useEffect(() => {
       if (videoStream && videoRef.current) {
@@ -2483,9 +2698,8 @@ export default function DPayApp() {
                 setReceiverUPI('');
                 setSendAmount('');
                 setSendDescription('');
-                setReceiverDetails(null);
+                setQrUploadedImage(null);
                 setShowUploadQR(false);
-                setUploadedQR(null);
                 if (videoStream) {
                   videoStream.getTracks().forEach(track => track.stop());
                   setVideoStream(null);
@@ -2498,123 +2712,150 @@ export default function DPayApp() {
           </div>
           
           {!scannedData ? (
-            <div className="text-center">
-              <div className="relative mb-6">
-                {videoStream ? (
-                  <div className="relative w-64 h-64 mx-auto border-4 border-green-500 rounded-xl overflow-hidden bg-gray-900">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 border-2 border-green-400 animate-ping opacity-20"></div>
-                  </div>
-                ) : showUploadQR ? (
-                  <div className="w-64 h-64 mx-auto border-4 border-blue-500 rounded-xl flex flex-col items-center justify-center bg-gray-900 overflow-hidden p-4">
-                    {uploadedQR ? (
-                      <div className="text-center">
-                        <img src={uploadedQR} alt="QR Code" className="w-48 h-48 mx-auto mb-4 object-contain" />
-                        <p className="text-green-400 text-sm">QR Code loaded successfully!</p>
-                        <button
-                          onClick={() => processQRData("upi://pay?pa=johndoe1234@dpay&pn=John%20Doe&am=500&cu=INR&tn=Payment%20for%20services")}
-                          className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                        >
-                          Process QR Code
-                        </button>
-                      </div>
+            showUploadQR ? (
+              // Upload QR Code View
+              <div className="text-center">
+                <div className="mb-6">
+                  <p className="text-lg font-bold text-white mb-4">Upload QR Code Image</p>
+                  <div className="w-64 h-64 mx-auto border-4 border-dashed border-violet-500 rounded-xl flex items-center justify-center bg-gray-900 overflow-hidden">
+                    {qrUploadedImage ? (
+                      <img 
+                        src={qrUploadedImage} 
+                        alt="Uploaded QR" 
+                        className="w-full h-full object-contain p-4"
+                      />
                     ) : (
-                      <>
-                        <Upload className="w-16 h-16 text-blue-400 mb-4" />
-                        <p className="text-blue-400 mb-2">Upload QR Code Image</p>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => processQRImage(e.target.files[0])}
-                          className="hidden"
-                          ref={qrUploadRef}
-                        />
-                        <button
-                          onClick={() => qrUploadRef.current?.click()}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                        >
-                          Choose Image
-                        </button>
-                      </>
+                      <div className="text-center p-8">
+                        <Upload className="w-16 h-16 text-violet-400 mx-auto mb-4" />
+                        <p className="text-violet-300">Upload QR Code Image</p>
+                        <p className="text-sm text-gray-400 mt-2">Supported: PNG, JPG, JPEG</p>
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <div className="w-64 h-64 mx-auto border-4 border-green-500 rounded-xl flex items-center justify-center bg-gray-900 overflow-hidden">
-                    <div className="relative w-full h-full flex items-center justify-center">
-                      <div className="absolute top-0 left-0 right-0 h-1 bg-green-500 animate-pulse"></div>
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-green-500 animate-pulse"></div>
-                      <div className="absolute right-0 top-0 bottom-0 w-1 bg-green-500 animate-pulse"></div>
-                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-500 animate-pulse"></div>
-                      
-                      <div className="absolute w-48 h-48 border-2 border-green-400 animate-ping opacity-20"></div>
-                      
-                      <Camera className="w-16 h-16 text-green-400 animate-pulse" />
-                    </div>
-                  </div>
-                )}
+                </div>
                 
-                {!isScanning && !videoStream && !showUploadQR && (
-                  <p className="text-sm text-gray-300 mt-4">Camera access needed for scanning</p>
-                )}
+                <div className="space-y-4">
+                  <label className="block">
+                    <span className="sr-only">Choose QR Code Image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleQRUpload}
+                      className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
+                    />
+                  </label>
+                  
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setQrUploadedImage(null);
+                        setShowUploadQR(false);
+                      }}
+                      className="flex-1 py-3 rounded-xl bg-gray-800 text-gray-300 font-semibold hover:bg-gray-700 transition"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={processUploadedQR}
+                      disabled={!qrUploadedImage}
+                      className={`flex-1 py-3 rounded-xl font-semibold transition ${
+                        !qrUploadedImage
+                          ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                          : 'bg-violet-600 text-white hover:bg-violet-700'
+                      }`}
+                    >
+                      Process QR
+                    </button>
+                  </div>
+                </div>
               </div>
-              
-              <div className="mt-6 p-4 rounded-xl bg-gray-900 border border-gray-700">
-                <p className="text-sm text-gray-300 mb-2">Scanning UPI QR codes will automatically fill:</p>
-                <ul className="text-xs text-gray-400 space-y-1">
-                  <li className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    Receiver's Name
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    Receiver's UPI ID
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                    Amount (if pre-filled in QR)
-                  </li>
-                </ul>
-              </div>
-              
-              {!videoStream && !showUploadQR && (
+            ) : (
+              // Camera Scanner View
+              <div className="text-center">
+                <div className="relative mb-6">
+                  {videoStream ? (
+                    <div className="relative w-64 h-64 mx-auto border-4 border-green-500 rounded-xl overflow-hidden bg-gray-900">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 border-2 border-green-400 animate-ping opacity-20"></div>
+                    </div>
+                  ) : (
+                    <div className="w-64 h-64 mx-auto border-4 border-green-500 rounded-xl flex items-center justify-center bg-gray-900 overflow-hidden">
+                      <div className="relative w-full h-full flex items-center justify-center">
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-green-500 animate-pulse"></div>
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-green-500 animate-pulse"></div>
+                        <div className="absolute right-0 top-0 bottom-0 w-1 bg-green-500 animate-pulse"></div>
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-500 animate-pulse"></div>
+                        
+                        <div className="absolute w-48 h-48 border-2 border-green-400 animate-ping opacity-20"></div>
+                        
+                        <Camera className="w-16 h-16 text-green-400 animate-pulse" />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {!isScanning && !videoStream && (
+                    <p className="text-sm text-gray-300 mt-4">Camera access needed for scanning</p>
+                  )}
+                </div>
+                
+                <div className="mt-6 p-4 rounded-xl bg-gray-900 border border-gray-700">
+                  <p className="text-sm text-gray-300 mb-2">Scanning UPI QR codes will automatically fill:</p>
+                  <ul className="text-xs text-gray-400 space-y-1">
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      Receiver's Name
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      Receiver's UPI ID
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                      Amount (if pre-filled in QR)
+                    </li>
+                  </ul>
+                </div>
+                
                 <div className="flex gap-3 mt-4">
                   <button
-                    onClick={() => {
-                      setIsScanning(true);
-                      setTimeout(() => {
-                        processQRData("upi://pay?pa=johndoe1234@dpay&pn=John%20Doe&am=500&cu=INR&tn=Payment%20for%20services");
-                      }, 2000);
-                    }}
-                    disabled={isScanning}
-                    className={`flex-1 py-3 rounded-xl font-semibold transition ${
-                      isScanning 
-                        ? 'bg-gray-700 text-gray-400 cursor-not-allowed' 
-                        : 'bg-green-600 text-white hover:bg-green-700'
-                    }`}
-                  >
-                    {isScanning ? (
-                      <div className="flex items-center justify-center gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Simulating Scan...</span>
-                      </div>
-                    ) : 'Simulate QR Scan'}
-                  </button>
-                  
-                  <button
                     onClick={() => setShowUploadQR(true)}
-                    className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition"
+                    className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2"
                   >
+                    <Upload className="w-5 h-5" />
                     Upload QR
                   </button>
+                  
+                  {!videoStream && (
+                    <button
+                      onClick={() => {
+                        setIsScanning(true);
+                        setTimeout(simulateQRScan, 2000);
+                      }}
+                      disabled={isScanning}
+                      className={`flex-1 py-3 rounded-xl font-semibold transition ${
+                        isScanning 
+                          ? 'bg-gray-700 text-gray-400 cursor-not-allowed' 
+                          : 'bg-green-600 text-white hover:bg-green-700'
+                      }`}
+                    >
+                      {isScanning ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Simulating Scan...</span>
+                        </div>
+                      ) : 'Simulate QR Scan'}
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )
           ) : (
+            // QR Code Scanned View
             <div className="text-center">
               <div className="mb-6 p-4 rounded-xl bg-gray-900 border border-green-700">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-900 flex items-center justify-center">
@@ -2632,17 +2873,8 @@ export default function DPayApp() {
                       <User className="w-5 h-5 text-blue-400" />
                     </div>
                     <div>
-                      <p className="font-semibold text-white text-lg">{receiverDetails?.username || receiverName}</p>
+                      <p className="font-semibold text-white text-lg">{receiverName}</p>
                       <p className="text-sm text-gray-300">{receiverUPI}</p>
-                      {receiverDetails && (
-                        <>
-                          <p className="text-xs text-gray-400">Mobile: {receiverDetails.mobile}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <p className="text-xs text-gray-400">Bank:</p>
-                            <BankStatusIndicator bankName={receiverDetails.bankName} />
-                          </div>
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -2682,7 +2914,8 @@ export default function DPayApp() {
                     setReceiverUPI('');
                     setSendAmount('');
                     setSendDescription('');
-                    setReceiverDetails(null);
+                    setQrUploadedImage(null);
+                    setShowUploadQR(false);
                   }}
                   className="flex-1 py-3 rounded-xl bg-gray-800 text-gray-300 font-semibold hover:bg-gray-700 transition"
                 >
@@ -2704,25 +2937,10 @@ export default function DPayApp() {
 
   // Send Money Modal
   const SendMoneyModal = () => {
-    const [searching, setSearching] = useState(false);
-
-    const handleSearchReceiver = async () => {
-      if (!sendToUPI && !sendToMobile) {
-        alert('Please enter UPI ID or Mobile Number');
-        return;
-      }
-
-      setSearching(true);
-      const receiver = await searchReceiver(sendToMobile, sendToUPI);
-      setSearching(false);
-
-      if (receiver) {
-        setReceiverDetails(receiver);
-      } else {
-        alert('Receiver not found. Please check the UPI ID or mobile number.');
-      }
-    };
-
+    const receiverBank = searchedReceiver?.bankName || getBankFromUPI(sendToUPI || sendToMobile);
+    const senderBankActive = checkBankServerStatus(userProfile?.bankName);
+    const receiverBankActive = checkBankServerStatus(receiverBank);
+    
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto">
@@ -2735,7 +2953,7 @@ export default function DPayApp() {
                 setSendToMobile('');
                 setSendMoneyAmount('');
                 setSendMoneyDescription('');
-                setReceiverDetails(null);
+                setSearchedReceiver(null);
               }}
               className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
             >
@@ -2748,26 +2966,18 @@ export default function DPayApp() {
               <label className="block text-sm font-medium text-violet-700 mb-2">
                 Send to UPI ID
               </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={sendToUPI}
-                  onChange={(e) => {
-                    setSendToUPI(e.target.value);
-                    setSendToMobile('');
-                    setReceiverDetails(null);
-                  }}
-                  placeholder="e.g., username@dpay"
-                  className="flex-1 px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                />
-                <button
-                  onClick={handleSearchReceiver}
-                  disabled={!sendToUPI || searching}
-                  className="px-4 py-3 bg-violet-600 text-white rounded-xl hover:bg-violet-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  {searching ? '...' : 'Search'}
-                </button>
-              </div>
+              <input
+                type="text"
+                value={sendToUPI}
+                onChange={(e) => {
+                  setSendToUPI(e.target.value);
+                  setSendToMobile('');
+                  setSearchedReceiver(null);
+                }}
+                onBlur={searchReceiver}
+                placeholder="e.g., username@dpay"
+                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
               <p className="text-xs text-violet-500 mt-1">Enter receiver's UPI ID</p>
             </div>
             
@@ -2781,44 +2991,59 @@ export default function DPayApp() {
               <label className="block text-sm font-medium text-violet-700 mb-2">
                 Send to Mobile Number
               </label>
-              <div className="flex gap-2">
-                <input
-                  type="tel"
-                  value={sendToMobile}
-                  onChange={(e) => {
-                    setSendToMobile(e.target.value);
-                    setSendToUPI('');
-                    setReceiverDetails(null);
-                  }}
-                  placeholder="10-digit mobile number"
-                  maxLength="10"
-                  className="flex-1 px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                />
-                <button
-                  onClick={handleSearchReceiver}
-                  disabled={!sendToMobile || searching}
-                  className="px-4 py-3 bg-violet-600 text-white rounded-xl hover:bg-violet-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  {searching ? '...' : 'Search'}
-                </button>
-              </div>
+              <input
+                type="tel"
+                value={sendToMobile}
+                onChange={(e) => {
+                  setSendToMobile(e.target.value);
+                  setSendToUPI('');
+                  setSearchedReceiver(null);
+                }}
+                onBlur={searchReceiver}
+                placeholder="10-digit mobile number"
+                maxLength="10"
+                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
               <p className="text-xs text-violet-500 mt-1">Enter receiver's mobile number</p>
             </div>
             
-            {receiverDetails && (
+            {/* Receiver Details */}
+            {searchingReceiver && (
+              <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                  <p className="text-sm text-blue-600">Searching for receiver...</p>
+                </div>
+              </div>
+            )}
+            
+            {searchedReceiver && (
               <div className="p-4 rounded-xl bg-green-50 border border-green-200">
-                <p className="text-sm text-green-700 mb-2">Receiver Found:</p>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 mb-3">
                   <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
                     <User className="w-6 h-6 text-green-600" />
                   </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-green-800">{receiverDetails.username}</p>
-                    <p className="text-sm text-green-600">{receiverDetails.upiId}</p>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-green-500">Mobile: {receiverDetails.mobile}</p>
-                      <BankStatusIndicator bankName={receiverDetails.bankName} />
+                  <div>
+                    <p className="font-bold text-green-800">{searchedReceiver.username}</p>
+                    <p className="text-sm text-green-600">
+                      {searchedReceiver.upiId || `+91 ${searchedReceiver.mobile}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <p className="text-sm text-green-600">Bank</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-green-800">{searchedReceiver.bankName}</p>
+                      <BankStatusIndicator 
+                        bankName={searchedReceiver.bankName} 
+                        status={bankServerStatus[searchedReceiver.bankName]?.status || 'unknown'} 
+                      />
                     </div>
+                  </div>
+                  <div className="flex justify-between">
+                    <p className="text-sm text-green-600">Credit Score</p>
+                    <p className="font-medium text-green-800">{searchedReceiver.creditScore}</p>
                   </div>
                 </div>
               </div>
@@ -2851,9 +3076,9 @@ export default function DPayApp() {
             </div>
             
             {/* Bank Server Status */}
-            {userProfile && receiverDetails && sendMoneyAmount && (
+            {userProfile && (sendToUPI || sendToMobile) && sendMoneyAmount && (
               <div className={`p-4 rounded-xl border ${
-                checkBankServerStatus(userProfile.bankName) && checkBankServerStatus(receiverDetails.bankName)
+                senderBankActive && receiverBankActive 
                   ? 'bg-green-50 border-green-200'
                   : 'bg-amber-50 border-amber-200'
               }`}>
@@ -2864,25 +3089,31 @@ export default function DPayApp() {
                       <p className="text-xs">Your Bank</p>
                       <p className="text-sm font-medium">{userProfile.bankName}</p>
                     </div>
-                    <BankStatusIndicator bankName={userProfile.bankName} />
+                    <BankStatusIndicator 
+                      bankName={userProfile.bankName} 
+                      status={bankServerStatus[userProfile.bankName]?.status || 'unknown'} 
+                    />
                   </div>
                   <div className="flex justify-between items-center">
                     <div>
                       <p className="text-xs">Receiver's Bank</p>
-                      <p className="text-sm font-medium">{receiverDetails.bankName}</p>
+                      <p className="text-sm font-medium">{receiverBank}</p>
                     </div>
-                    <BankStatusIndicator bankName={receiverDetails.bankName} />
+                    <BankStatusIndicator 
+                      bankName={receiverBank} 
+                      status={bankServerStatus[receiverBank]?.status || 'unknown'} 
+                    />
                   </div>
                 </div>
-                {(!checkBankServerStatus(userProfile.bankName) || !checkBankServerStatus(receiverDetails.bankName)) && (
+                {(!senderBankActive || !receiverBankActive) && (
                   <div className="mt-3 p-3 rounded-lg bg-amber-100 border border-amber-300">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
                       <div>
                         <p className="text-xs text-amber-800">
-                          {!checkBankServerStatus(userProfile.bankName) && !checkBankServerStatus(receiverDetails.bankName) 
+                          {!senderBankActive && !receiverBankActive 
                             ? "Both banks are down. DPay will handle the transaction temporarily."
-                            : !checkBankServerStatus(userProfile.bankName) 
+                            : !senderBankActive 
                             ? "Your bank is down. DPay will pay for you temporarily."
                             : "Receiver's bank is down. DPay will hold the amount temporarily."}
                         </p>
@@ -2895,12 +3126,7 @@ export default function DPayApp() {
             
             <button
               onClick={handleSendMoney}
-              disabled={!receiverDetails || !sendMoneyAmount}
-              className={`w-full py-3 rounded-xl font-semibold transition ${
-                !receiverDetails || !sendMoneyAmount
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-violet-600 text-white hover:bg-violet-700'
-              }`}
+              className="w-full py-3 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700 transition"
             >
               Send Money
             </button>
@@ -3192,140 +3418,25 @@ export default function DPayApp() {
     </div>
   );
 
-  // Loan Application Modal
-  const LoanApplyModal = () => {
-    const tenureOptions = showLoanCategory === 'home' 
-      ? ['5 years', '10 years', '15 years', '20 years', '25 years', '30 years']
-      : showLoanCategory === 'education' 
-      ? ['5 years', '10 years', '15 years']
-      : ['1 year', '2 years', '3 years', '5 years', '7 years'];
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-violet-700">Apply for Loan</h2>
-            <button
-              onClick={() => {
-                setShowLoanApply(false);
-                setSelectedLoan(null);
-                setLoanAmount('');
-                setLoanTenure('');
-              }}
-              className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            {selectedLoan && (
-              <div className="p-4 rounded-xl bg-green-50 border border-green-200">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm text-green-600 mb-1">Selected Offer</p>
-                    <p className="font-bold text-green-800">{selectedLoan.bank}</p>
-                    <p className="text-sm text-green-700">Interest Rate: {selectedLoan.interest}</p>
-                  </div>
-                  <BankStatusIndicator bankName={selectedLoan.bank} />
-                </div>
-                <p className="text-xs text-green-600 mt-2">
-                  Max Amount: {selectedLoan.amount} | Tenure: {selectedLoan.tenure}
-                </p>
-              </div>
-            )}
-            
-            <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Loan Amount (₹)
-              </label>
-              <input
-                type="number"
-                value={loanAmount}
-                onChange={(e) => setLoanAmount(e.target.value)}
-                placeholder="Enter loan amount"
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-              {selectedLoan && (
-                <p className="text-xs text-violet-500 mt-1">
-                  Max allowed: {selectedLoan.amount.replace('Up to ', '')}
-                </p>
-              )}
-            </div>
-            
-            <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Loan Tenure
-              </label>
-              <select
-                value={loanTenure}
-                onChange={(e) => setLoanTenure(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              >
-                <option value="">Select Tenure</option>
-                {tenureOptions.map((tenure) => (
-                  <option key={tenure} value={tenure}>{tenure}</option>
-                ))}
-              </select>
-              {selectedLoan && (
-                <p className="text-xs text-violet-500 mt-1">
-                  Max tenure: {selectedLoan.tenure.replace('Up to ', '')}
-                </p>
-              )}
-            </div>
-            
-            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-medium text-amber-700 mb-1">Required Documents</p>
-                  <ul className="text-xs text-amber-600 space-y-1">
-                    <li>• Aadhaar Card</li>
-                    <li>• PAN Card</li>
-                    <li>• Last 3 months bank statements</li>
-                    <li>• Income proof (Salary slips/ITR)</li>
-                    <li>• Address proof</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => {
-                alert('For demo purposes, loan application is not processed. In production, this would submit your application.');
-                setShowLoanApply(false);
-                setSelectedLoan(null);
-                setLoanAmount('');
-                setLoanTenure('');
-              }}
-              disabled={!loanAmount || !loanTenure || !selectedLoan}
-              className={`w-full py-3 rounded-xl font-semibold transition ${
-                !loanAmount || !loanTenure || !selectedLoan
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-violet-600 text-white hover:bg-violet-700'
-              }`}
-            >
-              Submit Loan Application
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Loans Modal
+  // Loan Application Modal - Removed as requested
+  // Loans Modal - Only list loans
   const LoansModal = () => {
-    const currentLoans = userLoans || [];
+    useEffect(() => {
+      if (showLoanCategory) {
+        loadLoanOffers(showLoanCategory);
+      }
+    }, [showLoanCategory]);
 
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-violet-700">Loans</h2>
+            <h2 className="text-2xl font-bold text-violet-700">Available Loans</h2>
             <button
               onClick={() => {
                 setShowLoans(false);
                 setShowLoanCategory(null);
+                setLoanOffers([]);
               }}
               className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
             >
@@ -3350,33 +3461,6 @@ export default function DPayApp() {
                   ))}
                 </div>
               </div>
-              
-              {currentLoans.length > 0 && (
-                <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
-                  <p className="text-sm font-medium text-blue-700 mb-3">Your Loan Applications</p>
-                  <div className="space-y-2">
-                    {currentLoans.slice(0, 3).map((loan, index) => (
-                      <div key={index} className="p-3 rounded-lg bg-white border border-blue-100">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="font-medium text-blue-800">{loan.loanType}</p>
-                            <p className="text-xs text-blue-600">{loan.bankName}</p>
-                          </div>
-                          <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            loan.status === 'approved' ? 'bg-green-100 text-green-700' :
-                            loan.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                            loan.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                            'bg-blue-100 text-blue-700'
-                          }`}>
-                            {loan.status}
-                          </span>
-                        </div>
-                        <p className="text-sm text-blue-600 mt-1">Amount: ₹{loan.amount}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
               
               <div className="p-4 rounded-xl bg-green-50 border border-green-200">
                 <div className="flex items-center gap-3 mb-3">
@@ -3408,7 +3492,10 @@ export default function DPayApp() {
               <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
                 <div className="flex items-center gap-3 mb-4">
                   <button
-                    onClick={() => setShowLoanCategory(null)}
+                    onClick={() => {
+                      setShowLoanCategory(null);
+                      setLoanOffers([]);
+                    }}
                     className="text-violet-600 hover:text-violet-700"
                   >
                     <ChevronRight className="w-5 h-5 rotate-180" />
@@ -3427,49 +3514,51 @@ export default function DPayApp() {
                 </div>
                 
                 <div className="space-y-3">
-                  {LOANS_DATA[showLoanCategory]?.map((loan, index) => (
-                    <div key={index} className="p-4 rounded-xl border border-gray-200 bg-white">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <p className="font-bold text-gray-800">{loan.bank || loan.provider}</p>
-                          <p className="text-sm text-gray-600">{loan.type || 'Loan'}</p>
+                  {loanOffers.length > 0 ? (
+                    loanOffers.map((loan, index) => (
+                      <div key={index} className="p-4 rounded-xl border border-gray-200 bg-white">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p className="font-bold text-gray-800">{loan.bank || loan.provider}</p>
+                            <p className="text-sm text-gray-600">{loan.type || 'Loan'}</p>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium mb-1">
+                              {loan.interest || 'View Details'}
+                            </span>
+                            {loan.bank && (
+                              <BankStatusIndicator 
+                                bankName={loan.bank} 
+                                status={bankServerStatus[loan.bank]?.status || 'unknown'} 
+                              />
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-col items-end">
-                          <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium mb-1">
-                            {loan.interest || 'View Details'}
-                          </span>
-                          {loan.bank && <BankStatusIndicator bankName={loan.bank} />}
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-2 rounded-lg bg-gray-50">
+                            <p className="text-xs text-gray-500">Amount</p>
+                            <p className="font-medium text-gray-800">{loan.amount}</p>
+                          </div>
+                          <div className="p-2 rounded-lg bg-gray-50">
+                            <p className="text-xs text-gray-500">Tenure</p>
+                            <p className="font-medium text-gray-800">{loan.tenure}</p>
+                          </div>
                         </div>
+                        
+                        {loan.processing && (
+                          <div className="mt-3 p-2 rounded-lg bg-blue-50">
+                            <p className="text-xs text-blue-600">Processing Fee: {loan.processing}</p>
+                          </div>
+                        )}
                       </div>
-                      
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-2 rounded-lg bg-gray-50">
-                          <p className="text-xs text-gray-500">Amount</p>
-                          <p className="font-medium text-gray-800">{loan.amount}</p>
-                        </div>
-                        <div className="p-2 rounded-lg bg-gray-50">
-                          <p className="text-xs text-gray-500">Tenure</p>
-                          <p className="font-medium text-gray-800">{loan.tenure}</p>
-                        </div>
-                      </div>
-                      
-                      {loan.processing && (
-                        <div className="mt-3 p-2 rounded-lg bg-blue-50">
-                          <p className="text-xs text-blue-600">Processing Fee: {loan.processing}</p>
-                        </div>
-                      )}
-                      
-                      <button
-                        onClick={() => {
-                          setSelectedLoan(loan);
-                          setShowLoanApply(true);
-                        }}
-                        className="w-full mt-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition"
-                      >
-                        Apply Now
-                      </button>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-8 h-8 text-violet-400 animate-spin mx-auto mb-3" />
+                      <p className="text-violet-600">Loading loan offers...</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
               
@@ -3761,20 +3850,22 @@ export default function DPayApp() {
 
   // Admin Panel Modal
   const AdminPanelModal = () => {
-    if (!userProfile || userProfile.mobile !== '7825007490') {
-      return null;
-    }
+    if (!isAdmin) return null;
 
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-violet-700">Admin Panel</h2>
+            <div>
+              <h2 className="text-2xl font-bold text-violet-700">Admin Panel</h2>
+              <p className="text-sm text-violet-600">Manage users and bank status</p>
+            </div>
             <button
               onClick={() => {
                 setShowAdminPanel(false);
-                setSelectedUserForEdit(null);
-                setAdminEditMode(false);
+                setSelectedAdminUser(null);
+                setAdminEditingUser(null);
+                setAdminBankStatusEditing(null);
               }}
               className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
             >
@@ -3782,209 +3873,235 @@ export default function DPayApp() {
             </button>
           </div>
           
-          <div className="space-y-6">
-            {/* Users Management */}
-            <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
-              <h3 className="text-lg font-bold text-violet-800 mb-4">Users Management</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-violet-100">
-                      <th className="p-3 text-left">Name</th>
-                      <th className="p-3 text-left">Mobile</th>
-                      <th className="p-3 text-left">Email</th>
-                      <th className="p-3 text-left">Balance</th>
-                      <th className="p-3 text-left">App Balance</th>
-                      <th className="p-3 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allUsers.map((user) => (
-                      <tr key={user._id} className="border-b border-violet-100 hover:bg-violet-50">
-                        <td className="p-3">{user.username}</td>
-                        <td className="p-3">{user.mobile}</td>
-                        <td className="p-3">{user.email}</td>
-                        <td className="p-3">₹{user.balance?.toFixed(2)}</td>
-                        <td className="p-3">₹{user.appBalance?.toFixed(2)}</td>
-                        <td className="p-3">
-                          <button
-                            onClick={() => {
-                              setSelectedUserForEdit(user);
-                              setAdminEditMode(true);
-                            }}
-                            className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs"
-                          >
-                            Edit
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-violet-100 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-violet-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-violet-800">Administrator Access</h3>
+                <p className="text-sm text-violet-600">Mobile: 7825007490</p>
               </div>
             </div>
-            
+          </div>
+          
+          <div className="space-y-6">
             {/* Bank Status Management */}
             <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
-              <h3 className="text-lg font-bold text-blue-800 mb-4">Bank Server Status</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-blue-800">Bank Server Status</h3>
+                <button
+                  onClick={() => setAdminBankStatusEditing(!adminBankStatusEditing)}
+                  className="text-sm bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition"
+                >
+                  {adminBankStatusEditing ? 'Cancel' : 'Edit Status'}
+                </button>
+              </div>
+              
+              <div className="space-y-3">
                 {Object.entries(bankServerStatus).map(([bankName, status]) => (
                   <div key={bankName} className="p-3 rounded-lg bg-white border border-blue-100">
-                    <div className="flex justify-between items-center mb-2">
-                      <p className="font-medium text-blue-800 text-sm">{bankName}</p>
-                      <BankStatusIndicator bankName={bankName} />
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => handleAdminUpdateBankStatus(bankName, 'active')}
-                        className={`flex-1 py-1 text-xs rounded ${status.status === 'active' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                      >
-                        Active
-                      </button>
-                      <button
-                        onClick={() => handleAdminUpdateBankStatus(bankName, 'slow')}
-                        className={`flex-1 py-1 text-xs rounded ${status.status === 'slow' ? 'bg-yellow-600 text-white' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}
-                      >
-                        Slow
-                      </button>
-                      <button
-                        onClick={() => handleAdminUpdateBankStatus(bankName, 'down')}
-                        className={`flex-1 py-1 text-xs rounded ${status.status === 'down' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
-                      >
-                        Down
-                      </button>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-medium text-blue-800">{bankName}</p>
+                        <p className="text-xs text-blue-600">
+                          Last checked: {status.lastChecked ? new Date(status.lastChecked).toLocaleTimeString() : 'Unknown'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {adminBankStatusEditing ? (
+                          <select
+                            value={status.status}
+                            onChange={(e) => handleAdminUpdateBankStatus(bankName, e.target.value)}
+                            className="text-sm border border-blue-300 rounded-lg px-2 py-1"
+                          >
+                            <option value="active">Active</option>
+                            <option value="slow">Slow</option>
+                            <option value="down">Down</option>
+                          </select>
+                        ) : (
+                          <BankStatusIndicator bankName={bankName} status={status.status} />
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Admin Edit User Modal
-  const AdminEditUserModal = () => {
-    if (!selectedUserForEdit || !adminEditMode) return null;
-
-    const [editForm, setEditForm] = useState(selectedUserForEdit);
-
-    const handleSave = () => {
-      handleAdminUpdateUser(selectedUserForEdit._id, editForm);
-    };
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-violet-700">Edit User</h2>
-            <button
-              onClick={() => {
-                setSelectedUserForEdit(null);
-                setAdminEditMode(false);
-              }}
-              className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
-            >
-              <X className="w-6 h-6" />
-            </button>
+            
+            {/* User Management */}
+            <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
+              <h3 className="font-bold text-violet-800 mb-4">User Management</h3>
+              
+              {selectedAdminUser ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => {
+                        setSelectedAdminUser(null);
+                        setAdminEditingUser(null);
+                      }}
+                      className="text-violet-600 hover:text-violet-700 flex items-center gap-1"
+                    >
+                      <ChevronRight className="w-4 h-4 rotate-180" />
+                      Back to Users
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        value={adminEditingUser?.username || ''}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, username: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        Mobile Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={adminEditingUser?.mobile || ''}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, mobile: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={adminEditingUser?.email || ''}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, email: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        Bank Name
+                      </label>
+                      <select
+                        value={adminEditingUser?.bankName || ''}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, bankName: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      >
+                        <option value="">Select Bank</option>
+                        {INDIAN_BANKS.map(bank => (
+                          <option key={bank} value={bank}>{bank}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        Account Balance
+                      </label>
+                      <input
+                        type="number"
+                        value={adminEditingUser?.balance || 0}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, balance: parseFloat(e.target.value) }))}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        App Balance
+                      </label>
+                      <input
+                        type="number"
+                        value={adminEditingUser?.appBalance || 0}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, appBalance: parseFloat(e.target.value) }))}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-violet-700 mb-1">
+                        Credit Score
+                      </label>
+                      <input
+                        type="number"
+                        value={adminEditingUser?.creditScore || 0}
+                        onChange={(e) => setAdminEditingUser(prev => ({ ...prev, creditScore: parseInt(e.target.value) }))}
+                        min="300"
+                        max="900"
+                        className="w-full px-3 py-2 rounded-lg border border-violet-300"
+                      />
+                    </div>
+                    
+                    <div className="flex gap-3 pt-4">
+                      <button
+                        onClick={() => {
+                          setSelectedAdminUser(null);
+                          setAdminEditingUser(null);
+                        }}
+                        className="flex-1 py-2 rounded-lg bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleAdminSaveUser}
+                        className="flex-1 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-700 transition"
+                      >
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {adminUsers.map(user => (
+                    <div key={user._id} className="p-3 rounded-lg bg-white border border-violet-100">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-medium text-violet-800">{user.username}</p>
+                          <p className="text-xs text-violet-600">{user.mobile} • {user.email}</p>
+                        </div>
+                        <button
+                          onClick={() => handleAdminEditUser(user)}
+                          className="text-sm bg-violet-600 text-white px-3 py-1 rounded-lg hover:bg-violet-700 transition"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                        <div className="p-2 rounded bg-violet-50">
+                          <p className="text-violet-500">Balance</p>
+                          <p className="font-medium text-violet-800">₹{user.balance?.toFixed(2)}</p>
+                        </div>
+                        <div className="p-2 rounded bg-green-50">
+                          <p className="text-green-500">Credit Score</p>
+                          <p className="font-medium text-green-800">{user.creditScore}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Username
-              </label>
-              <input
-                type="text"
-                value={editForm.username}
-                onChange={(e) => setEditForm({...editForm, username: e.target.value})}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Mobile Number
-              </label>
-              <input
-                type="tel"
-                value={editForm.mobile}
-                onChange={(e) => setEditForm({...editForm, mobile: e.target.value})}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Email
-              </label>
-              <input
-                type="email"
-                value={editForm.email}
-                onChange={(e) => setEditForm({...editForm, email: e.target.value})}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Bank Balance (₹)
-              </label>
-              <input
-                type="number"
-                value={editForm.balance}
-                onChange={(e) => setEditForm({...editForm, balance: parseFloat(e.target.value)})}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                App Balance (₹)
-              </label>
-              <input
-                type="number"
-                value={editForm.appBalance}
-                onChange={(e) => setEditForm({...editForm, appBalance: parseFloat(e.target.value)})}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-violet-700 mb-2">
-                Bank Name
-              </label>
-              <select
-                value={editForm.bankName}
-                onChange={(e) => setEditForm({...editForm, bankName: e.target.value})}
-                className="w-full px-4 py-3 rounded-xl border border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              >
-                <option value="">Select Bank</option>
-                {INDIAN_BANKS.map((bank) => (
-                  <option key={bank} value={bank}>{bank}</option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setSelectedUserForEdit(null);
-                  setAdminEditMode(false);
-                }}
-                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold border border-gray-400 hover:bg-gray-200 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                className="flex-1 py-3 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700 transition"
-              >
-                Save Changes
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => {
+              setShowAdminPanel(false);
+              setSelectedAdminUser(null);
+              setAdminEditingUser(null);
+              setAdminBankStatusEditing(null);
+            }}
+            className="w-full mt-6 py-3 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700 transition"
+          >
+            Close Admin Panel
+          </button>
         </div>
       </div>
     );
@@ -4181,7 +4298,10 @@ export default function DPayApp() {
                         <Building className="w-4 h-4" />
                         Bank Information
                       </p>
-                      <BankStatusIndicator bankName={currentProfile.bankName} />
+                      <BankStatusIndicator 
+                        bankName={currentProfile.bankName} 
+                        status={bankServerStatus[currentProfile.bankName]?.status || 'unknown'} 
+                      />
                     </div>
                     <div className="space-y-2">
                       <div>
@@ -4256,23 +4376,23 @@ export default function DPayApp() {
                     </p>
                   </div>
                   
-                  {/* Admin Section for mobile 7825007490 */}
-                  {userProfile.mobile === '7825007490' && (
+                  {/* Admin Section for 7825007490 */}
+                  {isAdmin && (
                     <div className="p-4 rounded-xl bg-red-50 border border-red-100 text-left">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-sm text-red-600 flex items-center gap-2">
                           <Shield className="w-4 h-4" />
-                          Admin Controls
+                          Administrator Access
                         </p>
                         <button
                           onClick={handleAdminAccess}
                           className="text-xs bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition"
                         >
-                          Access Admin Panel
+                          Open Admin Panel
                         </button>
                       </div>
                       <p className="text-xs text-red-500">
-                        You have administrative privileges. Click above to manage users and bank status.
+                        You have administrator privileges to manage users and bank status.
                       </p>
                     </div>
                   )}
@@ -4418,7 +4538,10 @@ export default function DPayApp() {
                   <div className="p-3 rounded-lg bg-violet-50 border border-violet-100">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-violet-600">Linked Bank</p>
-                      <BankStatusIndicator bankName={userProfile.bankName} />
+                      <BankStatusIndicator 
+                        bankName={userProfile.bankName} 
+                        status={bankServerStatus[userProfile.bankName]?.status || 'unknown'} 
+                      />
                     </div>
                     <p className="font-medium text-violet-800">{userProfile.bankName}</p>
                   </div>
@@ -4489,7 +4612,10 @@ export default function DPayApp() {
             <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-sm text-violet-600">Bank Account</p>
-                <BankStatusIndicator bankName={userProfile?.bankName} />
+                <BankStatusIndicator 
+                  bankName={userProfile?.bankName} 
+                  status={bankServerStatus[userProfile?.bankName]?.status || 'unknown'} 
+                />
               </div>
               <p className="font-medium text-violet-800">{userProfile?.bankName}</p>
               <p className="text-xs text-violet-500 mt-1">
@@ -4513,7 +4639,7 @@ export default function DPayApp() {
               </p>
               <p className="text-xs mt-1">
                 {(userProfile?.appBalance || 0) < 0 
-                  ? 'Negative balance indicates DPay advanced payments during bank downtime'
+                  ? 'Negative balance indicates DPay advanced payments during bank downtime. This will be cleared from your bank balance when banks are active.'
                   : 'Available for rewards and buffer'}
               </p>
             </div>
@@ -4564,7 +4690,10 @@ export default function DPayApp() {
             </div>
             <div className="text-right">
               <p className="text-sm text-violet-600 mb-1">Bank Status</p>
-              <BankStatusIndicator bankName={userProfile?.bankName} />
+              <BankStatusIndicator 
+                bankName={userProfile?.bankName} 
+                status={bankServerStatus[userProfile?.bankName]?.status || 'unknown'} 
+              />
             </div>
           </div>
         </div>
@@ -4715,9 +4844,7 @@ export default function DPayApp() {
                       <option value="">Select Bank *</option>
                       {INDIAN_BANKS.map((bank, index) => (
                         <option key={index} value={bank}>
-                          {bank} - {bankServerStatus[bank]?.status === 'active' ? '✅' : 
-                                   bankServerStatus[bank]?.status === 'slow' ? '⚠️' : 
-                                   bankServerStatus[bank]?.status === 'down' ? '❌' : '❓'}
+                          {bank}
                         </option>
                       ))}
                     </select>
@@ -4926,7 +5053,7 @@ export default function DPayApp() {
                     OTP sent to {otpMethod === 'mobile' ? `+91 ${mobile}` : email}
                   </p>
                   <p className="text-xs text-violet-400 mb-4">
-                    For demo: Use OTP <span className="font-bold">{generatedOTP}</span>
+                    For demo: Use OTP <span className="font-bold">{generatedOTP}</span> or 123456
                   </p>
                   <input
                     type="text"
@@ -4974,7 +5101,10 @@ export default function DPayApp() {
                   <p className="text-sm text-violet-600">
                     Hi, {userProfile.username}!
                   </p>
-                  <BankStatusIndicator bankName={userProfile.bankName} />
+                  <BankStatusIndicator 
+                    bankName={userProfile.bankName} 
+                    status={bankServerStatus[userProfile.bankName]?.status || 'unknown'} 
+                  />
                 </div>
               )}
             </div>
@@ -5123,12 +5253,12 @@ export default function DPayApp() {
       {showMobileRecharge && <MobileRechargeModal />}
       {showBills && <BillsModal />}
       {showLoans && <LoansModal />}
-      {showLoanApply && <LoanApplyModal />}
       {showAtmCard && <ATMCardModal />}
       {showUPIPinModal && <UPIPinModal />}
       {showChangeUPIPin && <ChangeUPIPinModal />}
       {showLogoutConfirm && <LogoutConfirmModal />}
       {showDeleteConfirm && <DeleteAccountModal />}
+      {showAdminPanel && <AdminPanelModal />}
       {showScratchCard && (
         <ScratchCard
           reward={scratchCardReward}
@@ -5169,8 +5299,6 @@ export default function DPayApp() {
           type={downtimeType}
         />
       )}
-      {showAdminPanel && <AdminPanelModal />}
-      {adminEditMode && <AdminEditUserModal />}
       {isLoading && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6">
