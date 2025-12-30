@@ -808,6 +808,11 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
     
     // Case 1: Sender's bank is down
     if (!senderBankActive && receiverBankActive) {
+      // Check if sender has sufficient balance
+      if (user.balance < amount) {
+        return res.status(400).json({ success: false, message: 'Insufficient balance in your bank account.' });
+      }
+      
       // DPay advances the payment
       const transaction = new Transaction({
         userId,
@@ -833,7 +838,6 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       
       // Update user app balance (negative)
       user.appBalance = (user.appBalance || 0) - amount;
-      await user.save();
       
       // Add to pending transactions for recovery
       user.pendingTransactions.push({
@@ -872,6 +876,9 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       // Deduct from sender
       user.balance -= amount;
       
+      // Add to app balance as held amount
+      user.appBalance = (user.appBalance || 0) + amount;
+      
       const transaction = new Transaction({
         userId,
         type: 'debit',
@@ -893,7 +900,6 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       });
       
       await transaction.save();
-      await user.save();
       
       // Add to pending transactions for recovery
       user.pendingTransactions.push({
@@ -924,6 +930,11 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
     
     // Case 3: Both banks are down
     else if (!senderBankActive && !receiverBankActive) {
+      // Check sender balance
+      if (user.balance < amount) {
+        return res.status(400).json({ success: false, message: 'Insufficient balance in your bank account.' });
+      }
+      
       // DPay advances and holds the payment
       const transaction = new Transaction({
         userId,
@@ -948,7 +959,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       
       await transaction.save();
       
-      // Update user app balance (negative)
+      // Update user app balance (negative amount for sender)
       user.appBalance = (user.appBalance || 0) - amount;
       
       // Add to pending transactions for recovery
@@ -1089,6 +1100,10 @@ app.post('/api/payments/recover', verifyToken, async (req, res) => {
               recoveryDate: new Date()
             }
           });
+          
+          // Deduct from app balance and add to receiver's account
+          // (In production, this would transfer to receiver's actual account)
+          user.appBalance -= pendingTx.amount;
           
           recoveredTransactions.push({
             transactionId: pendingTx.transactionId,
