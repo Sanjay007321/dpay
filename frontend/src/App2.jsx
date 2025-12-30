@@ -716,6 +716,19 @@ const apiService = {
     return response.json();
   },
 
+  // Recover pending transactions when banks are back online
+  async recoverPendingTransactions(token, userId) {
+    const response = await fetch(`${API_BASE_URL}/payments/recover`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ userId })
+    });
+    return response.json();
+  },
+
   // Pending Transactions APIs
   async getPendingTransactions(token, userId) {
     const response = await fetch(`${API_BASE_URL}/transactions/pending/${userId}`, {
@@ -947,6 +960,35 @@ export default function DPayApp() {
           const response = await apiService.getBankStatus(token);
           if (response.success) {
             setBankServerStatus(response.status);
+            
+            // Check if banks are back online and recover pending transactions
+            if (pendingTransactions.length > 0) {
+              const userBankActive = response.status[userProfile.bankName]?.status === 'active';
+              if (userBankActive) {
+                // Try to recover pending transactions
+                try {
+                  const recoverResponse = await apiService.recoverPendingTransactions(token, userProfile._id);
+                  if (recoverResponse.success && recoverResponse.recoveredTransactions.length > 0) {
+                    setDowntimeMessage(`${recoverResponse.recoveredTransactions.length} pending transaction(s) recovered!`);
+                    setDowntimeType('success');
+                    setShowDowntimeNotification(true);
+                    
+                    // Refresh user profile and pending transactions
+                    const updatedProfile = await apiService.getUserProfile(token, userProfile._id);
+                    if (updatedProfile.success) {
+                      setUserProfile(updatedProfile.user);
+                    }
+                    
+                    const pendingResponse = await apiService.getPendingTransactions(token, userProfile._id);
+                    if (pendingResponse.success) {
+                      setPendingTransactions(pendingResponse.transactions || []);
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error recovering transactions:', error);
+                }
+              }
+            }
           }
         } catch (error) {
           console.error('Error loading bank status:', error);
@@ -1108,6 +1150,14 @@ export default function DPayApp() {
       
       // Case 1: Sender's bank is down
       if (!senderBankActive && receiverBankActive) {
+        // Check if sender has sufficient balance
+        if (userProfile.balance < paymentData.amount) {
+          return { 
+            success: false, 
+            message: 'Insufficient balance in your bank account.' 
+          };
+        }
+        
         notificationMessage = `Your bank (${userProfile.bankName}) is currently down. DPay will pay ₹${paymentData.amount} for you. This amount will be deducted from your bank account once it's back online.`;
         notificationType = 'warning';
         
@@ -1181,6 +1231,14 @@ export default function DPayApp() {
       
       // Case 2: Receiver's bank is down
       else if (senderBankActive && !receiverBankActive) {
+        // Check sender balance
+        if (userProfile.balance < paymentData.amount) {
+          return { 
+            success: false, 
+            message: 'Insufficient balance.' 
+          };
+        }
+        
         notificationMessage = `Receiver's bank (${receiverBank}) is currently down. DPay will hold ₹${paymentData.amount} for the receiver. The amount will be transferred once their bank is back online.`;
         notificationType = 'warning';
         
@@ -1201,9 +1259,16 @@ export default function DPayApp() {
         // Deduct from sender's balance
         const updatedUser = {
           ...userProfile,
-          balance: userProfile.balance - paymentData.amount
+          balance: userProfile.balance - paymentData.amount,
+          appBalance: (userProfile.appBalance || 0) + paymentData.amount // Add to app balance as held amount
         };
         setUserProfile(updatedUser);
+        
+        // Update backend
+        await apiService.updateUserProfile(token, userId, { 
+          balance: updatedUser.balance,
+          appBalance: updatedUser.appBalance 
+        });
         
         // Create transaction record
         const transactionResponse = await apiService.createTransaction(token, {
@@ -1249,6 +1314,14 @@ export default function DPayApp() {
       
       // Case 3: Both banks are down
       else if (!senderBankActive && !receiverBankActive) {
+        // Check sender balance
+        if (userProfile.balance < paymentData.amount) {
+          return { 
+            success: false, 
+            message: 'Insufficient balance in your bank account.' 
+          };
+        }
+        
         notificationMessage = `Both banks are currently down. DPay will pay ₹${paymentData.amount} for you and hold it for the receiver. Amounts will be settled once banks are back online.`;
         notificationType = 'warning';
         
@@ -1323,6 +1396,14 @@ export default function DPayApp() {
       
       // Normal case: Both banks are active
       else {
+        // Check balance
+        if (userProfile.balance < paymentData.amount) {
+          return { 
+            success: false, 
+            message: 'Insufficient balance.' 
+          };
+        }
+        
         // Process normal payment
         const paymentResponse = await apiService.processPaymentWithDowntime(token, {
           ...paymentData,
@@ -2402,7 +2483,7 @@ export default function DPayApp() {
               setConfirmNewUPIPin('');
             }}
             className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
-          >
+            >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -3810,11 +3891,11 @@ export default function DPayApp() {
             <div className="space-y-2 text-left">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-                <p className="text-sm text-violet-600">Bank downtime coverage</p>
+                <p className="text-sm text-violet-600">Bank downtime coverage (Case 1)</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                <p className="text-sm text-violet-600">Holding payments during receiver bank downtime</p>
+                <p className="text-sm text-violet-600">Holding payments during receiver bank downtime (Case 2)</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
@@ -3822,7 +3903,7 @@ export default function DPayApp() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <p className="text-sm text-violet-600">Temporary transaction buffer</p>
+                <p className="text-sm text-violet-600">Both banks downtime handling (Case 3)</p>
               </div>
             </div>
           </div>
