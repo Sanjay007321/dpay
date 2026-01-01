@@ -101,15 +101,16 @@ const userSchema = new mongoose.Schema({
   lastLogin: { type: Date },
   isActive: { type: Boolean, default: true },
   pendingTransactions: [{
-    transactionId: String,
+    id: String,
+    senderBank: String,
+    receiverBank: String,
     amount: Number,
     description: String,
     receiverDetails: Object,
-    senderBank: String,
-    receiverBank: String,
-    status: { type: String, enum: ['pending', 'processing', 'completed', 'failed'], default: 'pending' },
-    createdAt: { type: Date, default: Date.now },
-    metadata: Object
+    category: String,
+    timestamp: Date,
+    type: String,
+    status: { type: String, default: 'pending' }
   }]
 });
 
@@ -724,13 +725,6 @@ app.post('/api/transactions', verifyToken, async (req, res) => {
     
     await newTransaction.save();
     
-    // If this is a recovery transaction, update the original pending transaction
-    if (isRecovery && originalTransactionId) {
-      await User.findByIdAndUpdate(userId, {
-        $pull: { pendingTransactions: { transactionId: originalTransactionId } }
-      });
-    }
-    
     res.status(201).json({
       success: true,
       message: 'Transaction created successfully.',
@@ -756,25 +750,7 @@ app.get('/api/transactions/pending/:userId', verifyToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
     
-    // Also get transactions with status 'held_by_dpay'
-    const heldTransactions = await Transaction.find({
-      userId,
-      status: 'held_by_dpay'
-    }).sort({ createdAt: -1 });
-    
-    const pendingTransactions = [...user.pendingTransactions, ...heldTransactions.map(t => ({
-      transactionId: t._id,
-      amount: t.amount,
-      description: t.description,
-      receiverDetails: t.receiverDetails,
-      senderBank: t.senderBank,
-      receiverBank: t.receiverBank,
-      status: t.status,
-      createdAt: t.createdAt,
-      metadata: t.metadata
-    }))];
-    
-    res.json({ success: true, transactions: pendingTransactions });
+    res.json({ success: true, transactions: user.pendingTransactions || [] });
   } catch (error) {
     console.error('Get pending transactions error:', error);
     res.status(500).json({ success: false, message: 'Server error.' });
@@ -784,7 +760,7 @@ app.get('/api/transactions/pending/:userId', verifyToken, async (req, res) => {
 // Payment processing with downtime handling
 app.post('/api/payments/downtime', verifyToken, async (req, res) => {
   try {
-    const { userId, amount, description, receiverDetails, category, upiPin, senderBankStatus, receiverBankStatus, isRecovery, originalTransactionId } = req.body;
+    const { userId, amount, description, receiverDetails, category, upiPin, senderBankStatus, receiverBankStatus } = req.body;
     
     if (req.user.userId !== userId) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
@@ -801,6 +777,11 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid UPI PIN.' });
     }
     
+    // Check if user has sufficient balance
+    if (user.balance < amount) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance in your account.' });
+    }
+    
     // Check bank server status
     const senderBankActive = BANK_SERVER_STATUS[user.bankName]?.status === 'active';
     let receiverBank = receiverDetails?.bank || 'Unknown Bank';
@@ -808,11 +789,6 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
     
     // Case 1: Sender's bank is down
     if (!senderBankActive && receiverBankActive) {
-      // Check if sender has sufficient balance
-      if (user.balance < amount) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance in your bank account.' });
-      }
-      
       // DPay advances the payment
       const transaction = new Transaction({
         userId,
@@ -841,18 +817,16 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       
       // Add to pending transactions for recovery
       user.pendingTransactions.push({
-        transactionId: transaction._id,
+        id: transaction._id.toString(),
+        senderBank: user.bankName,
+        receiverBank: receiverBank,
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
-        receiverBank: receiverBank,
-        status: 'pending',
-        metadata: {
-          type: 'sender_bank_down',
-          recovered: false,
-          recoveryAttempts: 0
-        }
+        category: category || 'payment',
+        timestamp: new Date(),
+        type: 'sender_bank_down',
+        status: 'pending'
       });
       
       await user.save();
@@ -868,15 +842,8 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
     
     // Case 2: Receiver's bank is down
     else if (senderBankActive && !receiverBankActive) {
-      // Check sender balance
-      if (user.balance < amount) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance.' });
-      }
-      
-      // Deduct from sender
+      // Deduct from sender's balance and add to app balance
       user.balance -= amount;
-      
-      // Add to app balance as held amount
       user.appBalance = (user.appBalance || 0) + amount;
       
       const transaction = new Transaction({
@@ -890,7 +857,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         senderBankStatus: 'active',
         receiverBankStatus: 'down',
         category: category || 'payment',
-        status: 'held_by_dpay',
+        status: 'completed',
         metadata: {
           downtimeHandled: true,
           receiverBankDown: true,
@@ -903,18 +870,16 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       
       // Add to pending transactions for recovery
       user.pendingTransactions.push({
-        transactionId: transaction._id,
+        id: transaction._id.toString(),
+        senderBank: user.bankName,
+        receiverBank: receiverBank,
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
-        receiverBank: receiverBank,
-        status: 'pending',
-        metadata: {
-          type: 'receiver_bank_down',
-          recovered: false,
-          recoveryAttempts: 0
-        }
+        category: category || 'payment',
+        timestamp: new Date(),
+        type: 'receiver_bank_down',
+        status: 'pending'
       });
       
       await user.save();
@@ -930,11 +895,6 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
     
     // Case 3: Both banks are down
     else if (!senderBankActive && !receiverBankActive) {
-      // Check sender balance
-      if (user.balance < amount) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance in your bank account.' });
-      }
-      
       // DPay advances and holds the payment
       const transaction = new Transaction({
         userId,
@@ -947,7 +907,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         senderBankStatus: 'down',
         receiverBankStatus: 'down',
         category: category || 'payment',
-        status: 'held_by_dpay',
+        status: 'completed',
         metadata: {
           downtimeHandled: true,
           bothBanksDown: true,
@@ -959,23 +919,21 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       
       await transaction.save();
       
-      // Update user app balance (negative amount for sender)
+      // Update user app balance (negative)
       user.appBalance = (user.appBalance || 0) - amount;
       
       // Add to pending transactions for recovery
       user.pendingTransactions.push({
-        transactionId: transaction._id,
+        id: transaction._id.toString(),
+        senderBank: user.bankName,
+        receiverBank: receiverBank,
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
-        receiverBank: receiverBank,
-        status: 'pending',
-        metadata: {
-          type: 'both_banks_down',
-          recovered: false,
-          recoveryAttempts: 0
-        }
+        category: category || 'payment',
+        timestamp: new Date(),
+        type: 'both_banks_down',
+        status: 'pending'
       });
       
       await user.save();
@@ -991,11 +949,6 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
     
     // Normal case: Both banks are active
     else {
-      // Check balance
-      if (user.balance < amount) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance.' });
-      }
-      
       // Process normal payment
       user.balance -= amount;
       
@@ -1058,82 +1011,58 @@ app.post('/api/payments/recover', verifyToken, async (req, res) => {
       
       // Only recover if both banks are active
       if (senderBankStatus && receiverBankStatus) {
-        const metadata = pendingTx.metadata || {};
-        
         // Handle based on transaction type
-        if (metadata.type === 'sender_bank_down') {
+        if (pendingTx.type === 'sender_bank_down') {
           // Deduct from user's bank balance (since DPay advanced it earlier)
           if (user.balance >= pendingTx.amount) {
             user.balance -= pendingTx.amount;
             user.appBalance += pendingTx.amount; // Recover app balance
             
-            // Update original transaction
-            await Transaction.findByIdAndUpdate(pendingTx.transactionId, {
-              status: 'completed',
-              metadata: {
-                ...metadata,
-                recovered: true,
-                recoveryDate: new Date()
-              }
-            });
-            
             recoveredTransactions.push({
-              transactionId: pendingTx.transactionId,
+              transactionId: pendingTx.id,
               amount: pendingTx.amount,
               type: 'sender_bank_recovery'
             });
           } else {
             failedTransactions.push({
-              transactionId: pendingTx.transactionId,
+              transactionId: pendingTx.id,
               amount: pendingTx.amount,
               reason: 'Insufficient balance for recovery'
             });
           }
         }
-        else if (metadata.type === 'receiver_bank_down') {
-          // Amount was already deducted from sender, now mark as completed
-          await Transaction.findByIdAndUpdate(pendingTx.transactionId, {
-            status: 'completed',
-            metadata: {
-              ...metadata,
-              recovered: true,
-              recoveryDate: new Date()
-            }
-          });
-          
-          // Deduct from app balance and add to receiver's account
-          // (In production, this would transfer to receiver's actual account)
-          user.appBalance -= pendingTx.amount;
-          
-          recoveredTransactions.push({
-            transactionId: pendingTx.transactionId,
-            amount: pendingTx.amount,
-            type: 'receiver_bank_recovery'
-          });
-        }
-        else if (metadata.type === 'both_banks_down') {
-          // Both banks down case: deduct from sender's balance and recover app balance
-          if (user.balance >= pendingTx.amount) {
-            user.balance -= pendingTx.amount;
-            user.appBalance += pendingTx.amount;
-            
-            await Transaction.findByIdAndUpdate(pendingTx.transactionId, {
-              status: 'completed',
-              metadata: {
-                ...metadata,
-                recovered: true,
-                recoveryDate: new Date()
-              }
-            });
+        else if (pendingTx.type === 'receiver_bank_down') {
+          // Amount was already deducted from sender, now clear from app balance
+          if (user.appBalance >= pendingTx.amount) {
+            user.appBalance -= pendingTx.amount;
             
             recoveredTransactions.push({
-              transactionId: pendingTx.transactionId,
+              transactionId: pendingTx.id,
+              amount: pendingTx.amount,
+              type: 'receiver_bank_recovery'
+            });
+          } else {
+            failedTransactions.push({
+              transactionId: pendingTx.id,
+              amount: pendingTx.amount,
+              reason: 'Insufficient app balance for recovery'
+            });
+          }
+        }
+        else if (pendingTx.type === 'both_banks_down') {
+          // Both banks down case: deduct from sender's balance and clear app balance
+          if (user.balance >= pendingTx.amount && user.appBalance >= -pendingTx.amount) {
+            user.balance -= pendingTx.amount;
+            user.appBalance += pendingTx.amount; // Clear negative app balance
+            
+            recoveredTransactions.push({
+              transactionId: pendingTx.id,
               amount: pendingTx.amount,
               type: 'both_banks_recovery'
             });
           } else {
             failedTransactions.push({
-              transactionId: pendingTx.transactionId,
+              transactionId: pendingTx.id,
               amount: pendingTx.amount,
               reason: 'Insufficient balance for recovery'
             });
@@ -1144,7 +1073,7 @@ app.post('/api/payments/recover', verifyToken, async (req, res) => {
     
     // Remove recovered transactions from pending
     user.pendingTransactions = user.pendingTransactions.filter(tx => 
-      !recoveredTransactions.some(rt => rt.transactionId === tx.transactionId)
+      !recoveredTransactions.some(rt => rt.transactionId === tx.id)
     );
     
     await user.save();
@@ -1329,6 +1258,7 @@ app.get('/api/test', (req, res) => {
       '/api/users/search/mobile/:mobile',
       '/api/transactions/user/:userId',
       '/api/payments/downtime',
+      '/api/payments/recover',
       '/api/loans/offers/:loanType',
       '/api/admin/users',
       '/api/admin/banks/:bankName'
