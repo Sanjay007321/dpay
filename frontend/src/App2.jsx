@@ -716,7 +716,15 @@ const apiService = {
     return response.json();
   },
 
-  // Recover pending transactions when banks are back online
+  // Pending Transactions APIs
+  async getPendingTransactions(token, userId) {
+    const response = await fetch(`${API_BASE_URL}/transactions/pending/${userId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.json();
+  },
+
+  // Recover Pending Transactions
   async recoverPendingTransactions(token, userId) {
     const response = await fetch(`${API_BASE_URL}/payments/recover`, {
       method: 'POST',
@@ -725,14 +733,6 @@ const apiService = {
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ userId })
-    });
-    return response.json();
-  },
-
-  // Pending Transactions APIs
-  async getPendingTransactions(token, userId) {
-    const response = await fetch(`${API_BASE_URL}/transactions/pending/${userId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
   },
@@ -910,6 +910,11 @@ export default function DPayApp() {
   const [adminBankStatusEditing, setAdminBankStatusEditing] = useState(null);
   const [showAdminUPIPin, setShowAdminUPIPin] = useState(false);
   const [adminUPIPin, setAdminUPIPin] = useState('');
+
+  // Recovery States
+  const [showRecoveryNotification, setShowRecoveryNotification] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveredTransactions, setRecoveredTransactions] = useState([]);
   
   const [registerData, setRegisterData] = useState({
     username: '',
@@ -961,31 +966,20 @@ export default function DPayApp() {
           if (response.success) {
             setBankServerStatus(response.status);
             
-            // Check if banks are back online and recover pending transactions
-            if (pendingTransactions.length > 0) {
-              const userBankActive = response.status[userProfile.bankName]?.status === 'active';
-              if (userBankActive) {
-                // Try to recover pending transactions
-                try {
-                  const recoverResponse = await apiService.recoverPendingTransactions(token, userProfile._id);
-                  if (recoverResponse.success && recoverResponse.recoveredTransactions.length > 0) {
-                    setDowntimeMessage(`${recoverResponse.recoveredTransactions.length} pending transaction(s) recovered!`);
-                    setDowntimeType('success');
-                    setShowDowntimeNotification(true);
-                    
-                    // Refresh user profile and pending transactions
-                    const updatedProfile = await apiService.getUserProfile(token, userProfile._id);
-                    if (updatedProfile.success) {
-                      setUserProfile(updatedProfile.user);
-                    }
-                    
-                    const pendingResponse = await apiService.getPendingTransactions(token, userProfile._id);
-                    if (pendingResponse.success) {
-                      setPendingTransactions(pendingResponse.transactions || []);
-                    }
+            // Check if we can recover pending transactions
+            const pendingTxCount = pendingTransactions.length;
+            if (pendingTxCount > 0) {
+              const senderBankActive = checkBankServerStatus(userProfile.bankName);
+              if (senderBankActive) {
+                // Check if any pending transactions can be recovered
+                for (const tx of pendingTransactions) {
+                  const receiverBankActive = checkBankServerStatus(tx.receiverBank);
+                  if (receiverBankActive) {
+                    // Show recovery notification
+                    setRecoveryMessage(`Found ${pendingTxCount} pending transactions that can be recovered.`);
+                    setShowRecoveryNotification(true);
+                    break;
                   }
-                } catch (error) {
-                  console.error('Error recovering transactions:', error);
                 }
               }
             }
@@ -1001,7 +995,7 @@ export default function DPayApp() {
       const interval = setInterval(loadBankStatus, 30000); // Update every 30 seconds
       return () => clearInterval(interval);
     }
-  }, [loggedIn, userProfile]);
+  }, [loggedIn, userProfile, pendingTransactions]);
 
   // Load user profile and data
   useEffect(() => {
@@ -1131,6 +1125,37 @@ export default function DPayApp() {
     return randomBank;
   };
 
+  // Search receiver by UPI or Mobile
+  const searchReceiver = async () => {
+    if (!sendToUPI && !sendToMobile) {
+      setSearchedReceiver(null);
+      return;
+    }
+    
+    setSearchingReceiver(true);
+    const token = localStorage.getItem('dpay_token');
+    
+    try {
+      let response;
+      if (sendToUPI) {
+        response = await apiService.searchByUPI(token, sendToUPI);
+      } else {
+        response = await apiService.searchByMobile(token, sendToMobile);
+      }
+      
+      if (response.success && response.user) {
+        setSearchedReceiver(response.user);
+      } else {
+        setSearchedReceiver(null);
+      }
+    } catch (error) {
+      console.error('Error searching receiver:', error);
+      setSearchedReceiver(null);
+    } finally {
+      setSearchingReceiver(false);
+    }
+  };
+
   // Handle the three cases for bank downtime
   const handleBankDowntimePayment = async (paymentData, receiverBank) => {
     const token = localStorage.getItem('dpay_token');
@@ -1150,16 +1175,16 @@ export default function DPayApp() {
       
       // Case 1: Sender's bank is down
       if (!senderBankActive && receiverBankActive) {
+        notificationMessage = `Your bank (${userProfile.bankName}) is currently down. DPay will pay ₹${paymentData.amount} for you. This amount will be deducted from your bank account once it's back online.`;
+        notificationType = 'warning';
+        
         // Check if sender has sufficient balance
         if (userProfile.balance < paymentData.amount) {
           return { 
             success: false, 
-            message: 'Insufficient balance in your bank account.' 
+            message: 'Insufficient balance in your account.'
           };
         }
-        
-        notificationMessage = `Your bank (${userProfile.bankName}) is currently down. DPay will pay ₹${paymentData.amount} for you. This amount will be deducted from your bank account once it's back online.`;
-        notificationType = 'warning';
         
         // Add to pending transactions
         const pendingTransaction = {
@@ -1170,7 +1195,8 @@ export default function DPayApp() {
           description: paymentData.description,
           receiverDetails: paymentData.receiverDetails,
           category: paymentData.category || 'payment',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          type: 'sender_bank_down'
         };
         
         setPendingTransactions(prev => [...prev, pendingTransaction]);
@@ -1231,16 +1257,16 @@ export default function DPayApp() {
       
       // Case 2: Receiver's bank is down
       else if (senderBankActive && !receiverBankActive) {
-        // Check sender balance
+        notificationMessage = `Receiver's bank (${receiverBank}) is currently down. DPay will hold ₹${paymentData.amount} for the receiver. The amount will be transferred once their bank is back online.`;
+        notificationType = 'warning';
+        
+        // Check if sender has sufficient balance
         if (userProfile.balance < paymentData.amount) {
           return { 
             success: false, 
-            message: 'Insufficient balance.' 
+            message: 'Insufficient balance in your account.'
           };
         }
-        
-        notificationMessage = `Receiver's bank (${receiverBank}) is currently down. DPay will hold ₹${paymentData.amount} for the receiver. The amount will be transferred once their bank is back online.`;
-        notificationType = 'warning';
         
         // Add to pending transactions
         const pendingTransaction = {
@@ -1251,7 +1277,8 @@ export default function DPayApp() {
           description: paymentData.description,
           receiverDetails: paymentData.receiverDetails,
           category: paymentData.category || 'payment',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          type: 'receiver_bank_down'
         };
         
         setPendingTransactions(prev => [...prev, pendingTransaction]);
@@ -1260,7 +1287,7 @@ export default function DPayApp() {
         const updatedUser = {
           ...userProfile,
           balance: userProfile.balance - paymentData.amount,
-          appBalance: (userProfile.appBalance || 0) + paymentData.amount // Add to app balance as held amount
+          appBalance: (userProfile.appBalance || 0) + paymentData.amount
         };
         setUserProfile(updatedUser);
         
@@ -1314,16 +1341,16 @@ export default function DPayApp() {
       
       // Case 3: Both banks are down
       else if (!senderBankActive && !receiverBankActive) {
-        // Check sender balance
+        notificationMessage = `Both banks are currently down. DPay will pay ₹${paymentData.amount} for you and hold it for the receiver. Amounts will be settled once banks are back online.`;
+        notificationType = 'warning';
+        
+        // Check if sender has sufficient balance
         if (userProfile.balance < paymentData.amount) {
           return { 
             success: false, 
-            message: 'Insufficient balance in your bank account.' 
+            message: 'Insufficient balance in your account.'
           };
         }
-        
-        notificationMessage = `Both banks are currently down. DPay will pay ₹${paymentData.amount} for you and hold it for the receiver. Amounts will be settled once banks are back online.`;
-        notificationType = 'warning';
         
         // Add to pending transactions
         const pendingTransaction = {
@@ -1334,12 +1361,13 @@ export default function DPayApp() {
           description: paymentData.description,
           receiverDetails: paymentData.receiverDetails,
           category: paymentData.category || 'payment',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          type: 'both_banks_down'
         };
         
         setPendingTransactions(prev => [...prev, pendingTransaction]);
         
-        // Update app balance (negative amount for sender)
+        // Update app balance (negative amount for sender, positive for receiver's share)
         const updatedUser = {
           ...userProfile,
           appBalance: (userProfile.appBalance || 0) - paymentData.amount
@@ -1396,11 +1424,11 @@ export default function DPayApp() {
       
       // Normal case: Both banks are active
       else {
-        // Check balance
+        // Check if sender has sufficient balance
         if (userProfile.balance < paymentData.amount) {
           return { 
             success: false, 
-            message: 'Insufficient balance.' 
+            message: 'Insufficient balance in your account.'
           };
         }
         
@@ -1486,6 +1514,52 @@ export default function DPayApp() {
     }
   };
 
+  // Handle pending transaction recovery
+  const handleRecoverTransactions = async () => {
+    const token = localStorage.getItem('dpay_token');
+    const userId = localStorage.getItem('dpay_user_id');
+    
+    if (!token || !userId) return;
+    
+    setIsLoading(true);
+    setLoadingMessage("Recovering pending transactions...");
+    
+    try {
+      const response = await apiService.recoverPendingTransactions(token, userId);
+      
+      if (response.success) {
+        // Update user profile with new balances
+        const updatedUser = {
+          ...userProfile,
+          balance: response.newBalance,
+          appBalance: response.newAppBalance
+        };
+        setUserProfile(updatedUser);
+        
+        // Update pending transactions
+        setPendingTransactions(prev => 
+          prev.filter(tx => 
+            !response.recoveredTransactions.some(rt => rt.transactionId === tx.id)
+          )
+        );
+        
+        setRecoveredTransactions(response.recoveredTransactions);
+        setRecoveryMessage(`Successfully recovered ${response.recoveredTransactions.length} transaction(s)!`);
+        setShowRecoveryNotification(true);
+        
+        // Update notification after 3 seconds
+        setTimeout(() => {
+          setRecoveryMessage(`₹${response.recoveredTransactions.reduce((sum, tx) => sum + tx.amount, 0)} recovered to your account.`);
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error recovering transactions:', error);
+      alert('Failed to recover transactions.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle QR Scanner with Camera Access
   const handleQRScan = async () => {
     try {
@@ -1535,9 +1609,25 @@ export default function DPayApp() {
     
     // Parse UPI data
     const params = new URLSearchParams(demoQRData.split('?')[1]);
-    setReceiverUPI(params.get('pa') || 'johndoe1234@dpay');
+    const receiverUPI = params.get('pa') || 'johndoe1234@dpay';
+    setReceiverUPI(receiverUPI);
     setReceiverName(decodeURIComponent(params.get('pn') || 'John Doe'));
     setSendAmount(params.get('am') || '');
+    
+    // Search for receiver details from database
+    const searchReceiverFromQR = async () => {
+      const token = localStorage.getItem('dpay_token');
+      try {
+        const response = await apiService.searchByUPI(token, receiverUPI);
+        if (response.success && response.user) {
+          setReceiverName(response.user.username);
+        }
+      } catch (error) {
+        console.error('Error searching receiver from QR:', error);
+      }
+    };
+    
+    searchReceiverFromQR();
     
     // Simulate receiver mobile vibration
     vibrateMobile();
@@ -1575,10 +1665,12 @@ export default function DPayApp() {
         setQrUploadedImage(null);
         setShowUploadQR(false);
         
-        // Search for receiver details
-        const searchResponse = await apiService.searchByUPI(token, response.upiId);
-        if (searchResponse.success && searchResponse.user) {
-          setReceiverName(searchResponse.user.username);
+        // Search for receiver details from database
+        if (response.upiId) {
+          const searchResponse = await apiService.searchByUPI(token, response.upiId);
+          if (searchResponse.success && searchResponse.user) {
+            setReceiverName(searchResponse.user.username);
+          }
         }
       } else {
         alert('Failed to parse QR code. Using demo data.');
@@ -1600,14 +1692,37 @@ export default function DPayApp() {
       return;
     }
 
+    if (!receiverUPI) {
+      alert('Receiver UPI ID not found');
+      return;
+    }
+
+    // Search for receiver bank from database
+    const getReceiverBank = async () => {
+      const token = localStorage.getItem('dpay_token');
+      try {
+        const response = await apiService.searchByUPI(token, receiverUPI);
+        if (response.success && response.user) {
+          return response.user.bankName;
+        }
+      } catch (error) {
+        console.error('Error getting receiver bank:', error);
+      }
+      return getBankFromUPI(receiverUPI); // Fallback if not found
+    };
+
     // Request UPI PIN for payment
     setUpiPinAction({
       type: 'qr_payment',
       data: {
         amount: parseFloat(sendAmount),
         description: sendDescription || `Payment to ${receiverName}`,
-        receiverDetails: { name: receiverName, upi: receiverUPI },
-        receiverBank: getBankFromUPI(receiverUPI)
+        receiverDetails: { 
+          name: receiverName, 
+          upi: receiverUPI,
+          bank: getReceiverBank()
+        },
+        getReceiverBank: getReceiverBank
       }
     });
     setShowUPIPinModal(true);
@@ -1625,48 +1740,25 @@ export default function DPayApp() {
       return;
     }
 
+    // Get receiver bank from searched receiver or fallback
+    const receiverBank = searchedReceiver?.bankName || getBankFromUPI(sendToUPI || sendToMobile);
+
     // Request UPI PIN for payment
     setUpiPinAction({
       type: 'send_money',
       data: {
         amount: parseFloat(sendMoneyAmount),
-        description: sendMoneyDescription || `Payment to ${sendToUPI || sendToMobile}`,
-        receiverDetails: { upi: sendToUPI, mobile: sendToMobile },
-        receiverBank: getBankFromUPI(sendToUPI || sendToMobile)
+        description: sendMoneyDescription || `Payment to ${searchedReceiver?.username || sendToUPI || sendToMobile}`,
+        receiverDetails: { 
+          upi: sendToUPI, 
+          mobile: sendToMobile,
+          name: searchedReceiver?.username,
+          bank: receiverBank
+        },
+        receiverBank: receiverBank
       }
     });
     setShowUPIPinModal(true);
-  };
-
-  // Search receiver by UPI or Mobile
-  const searchReceiver = async () => {
-    if (!sendToUPI && !sendToMobile) {
-      setSearchedReceiver(null);
-      return;
-    }
-    
-    setSearchingReceiver(true);
-    const token = localStorage.getItem('dpay_token');
-    
-    try {
-      let response;
-      if (sendToUPI) {
-        response = await apiService.searchByUPI(token, sendToUPI);
-      } else {
-        response = await apiService.searchByMobile(token, sendToMobile);
-      }
-      
-      if (response.success && response.user) {
-        setSearchedReceiver(response.user);
-      } else {
-        setSearchedReceiver(null);
-      }
-    } catch (error) {
-      console.error('Error searching receiver:', error);
-      setSearchedReceiver(null);
-    } finally {
-      setSearchingReceiver(false);
-    }
   };
 
   // Handle Mobile Recharge
@@ -1736,11 +1828,19 @@ export default function DPayApp() {
     // Process based on action type
     switch (upiPinAction.type) {
       case 'qr_payment':
+        // Get receiver bank dynamically
+        let receiverBank;
+        if (upiPinAction.data.getReceiverBank) {
+          receiverBank = await upiPinAction.data.getReceiverBank();
+        } else {
+          receiverBank = getBankFromUPI(upiPinAction.data.receiverDetails.upi);
+        }
+        
         const qrSuccess = await handleMoneyTransfer(
           upiPinAction.data.amount,
           upiPinAction.data.description,
           upiPinAction.data.receiverDetails,
-          upiPinAction.data.receiverBank
+          receiverBank
         );
         
         if (qrSuccess) {
@@ -2372,6 +2472,50 @@ export default function DPayApp() {
     }
   };
 
+  // Recovery Notification Component
+  const RecoveryNotification = () => (
+    <div className="fixed top-20 left-1/2 transform -translate-x-1/2 w-96 z-50 animate-slide-in">
+      <div className="bg-green-50 border border-green-200 rounded-xl shadow-lg p-4">
+        <div className="flex items-start gap-3">
+          <BatteryCharging className="w-6 h-6 text-green-600" />
+          <div className="flex-1">
+            <p className="font-medium text-green-800">{recoveryMessage}</p>
+            {recoveredTransactions.length > 0 && (
+              <div className="mt-2">
+                <p className="text-sm text-green-600">Recovered transactions:</p>
+                <ul className="text-xs text-green-700 mt-1">
+                  {recoveredTransactions.slice(0, 3).map((tx, idx) => (
+                    <li key={idx} className="flex justify-between">
+                      <span>Transaction #{tx.transactionId?.slice(-6)}</span>
+                      <span>₹{tx.amount}</span>
+                    </li>
+                  ))}
+                  {recoveredTransactions.length > 3 && (
+                    <li className="text-green-600">+ {recoveredTransactions.length - 3} more</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setShowRecoveryNotification(false)}
+            className="text-green-600 hover:text-green-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {pendingTransactions.length > 0 && (
+          <button
+            onClick={handleRecoverTransactions}
+            className="mt-3 w-full py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
+          >
+            Recover All Pending Transactions
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   // UPI PIN Modal
   const UPIPinModal = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -2483,7 +2627,7 @@ export default function DPayApp() {
               setConfirmNewUPIPin('');
             }}
             className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition"
-            >
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -3098,7 +3242,7 @@ export default function DPayApp() {
               </div>
             )}
             
-            {searchedReceiver && (
+            {searchedReceiver ? (
               <div className="p-4 rounded-xl bg-green-50 border border-green-200">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
@@ -3128,7 +3272,19 @@ export default function DPayApp() {
                   </div>
                 </div>
               </div>
-            )}
+            ) : sendToUPI || sendToMobile ? (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-amber-700">User not found</p>
+                    <p className="text-xs text-amber-600 mt-1">
+                      The receiver is not registered with DPay. You can still send money if you know their UPI ID.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             
             <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
               <label className="block text-sm font-medium text-violet-700 mb-2">
@@ -3499,8 +3655,7 @@ export default function DPayApp() {
     </div>
   );
 
-  // Loan Application Modal - Removed as requested
-  // Loans Modal - Only list loans
+  // Loan Application Modal
   const LoansModal = () => {
     useEffect(() => {
       if (showLoanCategory) {
@@ -3873,7 +4028,11 @@ export default function DPayApp() {
                       <p className="font-bold text-amber-700">₹{transaction.amount}</p>
                     </div>
                     <p className="text-xs text-amber-500 mt-1">
-                      Waiting for banks to come online
+                      {transaction.type === 'sender_bank_down' 
+                        ? 'Waiting for your bank to recover'
+                        : transaction.type === 'receiver_bank_down'
+                        ? 'Waiting for receiver bank to recover'
+                        : 'Waiting for both banks to recover'}
                     </p>
                   </div>
                 ))}
@@ -3883,6 +4042,12 @@ export default function DPayApp() {
                   </p>
                 )}
               </div>
+              <button
+                onClick={handleRecoverTransactions}
+                className="w-full mt-3 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition"
+              >
+                Recover Pending Transactions
+              </button>
             </div>
           )}
           
@@ -3891,11 +4056,11 @@ export default function DPayApp() {
             <div className="space-y-2 text-left">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-                <p className="text-sm text-violet-600">Bank downtime coverage (Case 1)</p>
+                <p className="text-sm text-violet-600">Bank downtime coverage</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                <p className="text-sm text-violet-600">Holding payments during receiver bank downtime (Case 2)</p>
+                <p className="text-sm text-violet-600">Holding payments during receiver bank downtime</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
@@ -3903,7 +4068,7 @@ export default function DPayApp() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <p className="text-sm text-violet-600">Both banks downtime handling (Case 3)</p>
+                <p className="text-sm text-violet-600">Temporary transaction buffer</p>
               </div>
             </div>
           </div>
@@ -4734,6 +4899,12 @@ export default function DPayApp() {
                 <p className="text-xs text-amber-600">
                   {pendingTransactions.length} transaction(s) waiting for bank recovery
                 </p>
+                <button
+                  onClick={handleRecoverTransactions}
+                  className="w-full mt-3 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition"
+                >
+                  Recover Pending Transactions
+                </button>
               </div>
             )}
           </div>
@@ -5380,6 +5551,7 @@ export default function DPayApp() {
           type={downtimeType}
         />
       )}
+      {showRecoveryNotification && <RecoveryNotification />}
       {isLoading && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6">
