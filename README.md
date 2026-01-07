@@ -3,8 +3,8 @@ A full-stack digital payment application that simulates UPI transactions with in
 
 Live Demo
 https://dpayapp-dusr.onrender.com/
-<img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/8695f54f-4bb3-4ba2-85b2-12781fbe5034" />
-<img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/f4ccef2a-5bf0-4f29-92c9-951032d9fd20" />
+<img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/4df2ab9c-05df-40ec-9883-3e177a7da875" />
+<img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/e5577dc2-a020-43f7-95b9-95dfd94a58eb" />
 ![WhatsApp Image 2026-01-07 at 1 35 29 PM](https://github.com/user-attachments/assets/d8203c90-0c29-42f8-abfb-d9a357c0ef9c)
 
 
