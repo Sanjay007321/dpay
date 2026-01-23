@@ -69,7 +69,7 @@ const RECHARGE_PLANS = {
     { id: 2, amount: 299, validity: '28 days', data: '1.5GB/day', description: 'Popular Plan' },
     { id: 3, amount: 399, validity: '56 days', data: '1GB/day', description: 'Long Term' }
   ]
-];
+};
 
 // Bills Categories
 const BILLS_CATEGORIES = [
