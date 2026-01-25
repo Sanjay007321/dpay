@@ -1,11 +1,9 @@
-// backend.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const QRCode = require('qrcode');
-const { createCanvas, loadImage } = require('canvas');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -17,10 +15,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/dpay', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/dpay')
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch(err => console.error("MongoDB Connection Error:", err));
 
@@ -33,10 +28,24 @@ db.once('open', () => {
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// OTP Storage for demo
-const otpStorage = {};
+// Generate unique IDs
+const generateUPIId = (username, mobile) => {
+  const cleanUsername = username.toLowerCase().replace(/\s+/g, '');
+  const last4Mobile = mobile.slice(-4);
+  const randomNum = Math.floor(1000 + Math.random() * 9000);
+  return `${cleanUsername}${last4Mobile}${randomNum}@dpay`;
+};
 
-// Bank Server Status
+const generateReferralCode = (username, mobile) => {
+  const cleanUsername = username.substring(0, 3).toUpperCase();
+  const randomNum = Math.floor(100 + Math.random() * 900);
+  return `DP${cleanUsername}${randomNum}`;
+};
+
+// OTP Storage
+const otpStore = new Map();
+
+// Bank Server Status Simulation
 let BANK_SERVER_STATUS = {
   "State Bank of India (SBI)": { status: "active", lastChecked: new Date(), responseTime: "120ms" },
   "HDFC Bank": { status: "active", lastChecked: new Date(), responseTime: "95ms" },
@@ -47,37 +56,7 @@ let BANK_SERVER_STATUS = {
   "Bank of Baroda": { status: "active", lastChecked: new Date(), responseTime: "100ms" },
   "Canara Bank": { status: "active", lastChecked: new Date(), responseTime: "130ms" },
   "Union Bank of India": { status: "slow", lastChecked: new Date(), responseTime: "380ms" },
-  "Bank of India": { status: "active", lastChecked: new Date(), responseTime: "90ms" },
-  "IndusInd Bank": { status: "active", lastChecked: new Date(), responseTime: "75ms" },
-  "IDFC First Bank": { status: "active", lastChecked: new Date(), responseTime: "105ms" },
-  "Yes Bank": { status: "down", lastChecked: new Date(), responseTime: "Timeout" },
-  "Federal Bank": { status: "active", lastChecked: new Date(), responseTime: "95ms" },
-  "Indian Bank": { status: "active", lastChecked: new Date(), responseTime: "115ms" },
-  "Central Bank of India": { status: "slow", lastChecked: new Date(), responseTime: "420ms" },
-  "Indian Overseas Bank": { status: "active", lastChecked: new Date(), responseTime: "80ms" },
-  "UCO Bank": { status: "down", lastChecked: new Date(), responseTime: "Timeout" },
-  "Bandhan Bank": { status: "active", lastChecked: new Date(), responseTime: "88ms" },
-  "IDBI Bank": { status: "active", lastChecked: new Date(), responseTime: "125ms" }
-};
-
-// Generate OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Generate unique UPI ID
-const generateUPIId = (username, mobile) => {
-  const cleanUsername = username.toLowerCase().replace(/\s+/g, '');
-  const last4Mobile = mobile.slice(-4);
-  const randomNum = Math.floor(1000 + Math.random() * 9000);
-  return `${cleanUsername}${last4Mobile}${randomNum}@dpay`;
-};
-
-// Generate referral code
-const generateReferralCode = (username, mobile) => {
-  const cleanUsername = username.substring(0, 3).toUpperCase();
-  const randomNum = Math.floor(100 + Math.random() * 900);
-  return `DP${cleanUsername}${randomNum}`;
+  "Bank of India": { status: "active", lastChecked: new Date(), responseTime: "90ms" }
 };
 
 // User Schema with PAN and Credit Score
@@ -146,21 +125,6 @@ const transactionSchema = new mongoose.Schema({
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
-// Loan Schema
-const loanSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  loanType: { type: String, required: true },
-  bankName: { type: String, required: true },
-  amount: { type: Number, required: true },
-  interestRate: { type: Number, required: true },
-  tenure: { type: String, required: true },
-  status: { type: String, enum: ['pending', 'approved', 'rejected', 'disbursed'], default: 'pending' },
-  applicationDate: { type: Date, default: Date.now },
-  metadata: { type: Object }
-});
-
-const Loan = mongoose.model('Loan', loanSchema);
-
 // Middleware to verify JWT token
 const verifyToken = (req, res, next) => {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -178,121 +142,87 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// Admin middleware - check if user is admin (mobile: 7825007490)
-const verifyAdmin = async (req, res, next) => {
-  try {
-    const userId = req.user.userId;
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    
-    if (user.mobile !== '7825007490') {
-      return res.status(403).json({ success: false, message: 'Access denied. Admin privileges required.' });
-    }
-    
-    req.adminUser = user;
-    next();
-  } catch (error) {
-    console.error('Admin verification error:', error);
-    return res.status(500).json({ success: false, message: 'Server error during admin verification.' });
-  }
+// Generate OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
 // Routes
 
-// Bank Status API
-app.get('/api/banks/status', verifyToken, async (req, res) => {
-  try {
-    const bankName = req.query.bank;
-    
-    if (bankName) {
-      const status = BANK_SERVER_STATUS[bankName] || { status: 'unknown', lastChecked: new Date(), responseTime: 'N/A' };
-      res.json({ success: true, bankName, status });
-    } else {
-      res.json({ success: true, status: BANK_SERVER_STATUS });
-    }
-  } catch (error) {
-    console.error('Bank status error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
+// Bank Status APIs
+app.get('/api/banks/status', (req, res) => {
+  const bankName = req.query.bank;
+  
+  if (bankName) {
+    const status = BANK_SERVER_STATUS[bankName] || { status: 'unknown' };
+    res.json({ success: true, bankName, status });
+  } else {
+    res.json({ success: true, status: BANK_SERVER_STATUS });
   }
 });
 
-// OTP Generation and Verification APIs
-app.post('/api/otp/send', async (req, res) => {
+// OTP APIs
+app.post('/api/auth/send-otp', async (req, res) => {
   try {
-    const { mobile, email } = req.body;
+    const { mobile } = req.body;
     
-    if (!mobile && !email) {
-      return res.status(400).json({ success: false, message: 'Mobile or Email is required.' });
+    if (!mobile || mobile.length !== 10) {
+      return res.status(400).json({ success: false, message: 'Valid mobile number is required.' });
     }
     
+    // Generate OTP
     const otp = generateOTP();
-    const identifier = mobile || email;
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
     
-    // Store OTP for verification (in production, send via SMS/Email)
-    otpStorage[identifier] = {
-      otp,
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
-      attempts: 0
-    };
+    // Store OTP
+    otpStore.set(mobile, { otp, expiresAt });
     
-    // In production, send OTP via SMS/Email
-    // For demo, we'll just return it
+    // In production, send OTP via SMS service
+    console.log(`OTP for ${mobile}: ${otp}`);
+    
     res.json({
       success: true,
       message: 'OTP sent successfully.',
-      otp: otp, // For demo only - remove in production
-      identifier,
-      expiresIn: '5 minutes'
+      otp // For demo purposes only
     });
   } catch (error) {
-    console.error('OTP send error:', error);
+    console.error('Send OTP error:', error);
     res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
 
-app.post('/api/otp/verify', async (req, res) => {
+app.post('/api/auth/verify-otp', (req, res) => {
   try {
-    const { mobile, email, otp } = req.body;
+    const { mobile, otp } = req.body;
     
-    if (!otp) {
-      return res.status(400).json({ success: false, message: 'OTP is required.' });
+    if (!mobile || !otp) {
+      return res.status(400).json({ success: false, message: 'Mobile and OTP are required.' });
     }
     
-    const identifier = mobile || email;
-    const storedOtp = otpStorage[identifier];
+    const otpData = otpStore.get(mobile);
     
-    if (!storedOtp) {
-      return res.status(400).json({ success: false, message: 'OTP not found or expired. Please request a new OTP.' });
+    if (!otpData) {
+      return res.status(400).json({ success: false, message: 'OTP not found or expired.' });
     }
     
-    if (Date.now() > storedOtp.expiresAt) {
-      delete otpStorage[identifier];
-      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new OTP.' });
+    if (otpData.expiresAt < Date.now()) {
+      otpStore.delete(mobile);
+      return res.status(400).json({ success: false, message: 'OTP expired.' });
     }
     
-    if (storedOtp.attempts >= 3) {
-      delete otpStorage[identifier];
-      return res.status(400).json({ success: false, message: 'Too many attempts. Please request a new OTP.' });
-    }
-    
-    storedOtp.attempts++;
-    
-    if (storedOtp.otp !== otp && otp !== '123456') { // 123456 for demo
+    if (otpData.otp !== otp) {
       return res.status(400).json({ success: false, message: 'Invalid OTP.' });
     }
     
     // OTP verified successfully
-    delete otpStorage[identifier];
+    otpStore.delete(mobile);
     
     res.json({
       success: true,
       message: 'OTP verified successfully.'
     });
   } catch (error) {
-    console.error('OTP verify error:', error);
+    console.error('Verify OTP error:', error);
     res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
@@ -383,7 +313,7 @@ app.post('/api/auth/register', async (req, res) => {
         bankName: newUser.bankName,
         accountNumber: newUser.accountNumber,
         atmCardNumber: newUser.atmCardNumber,
-        upiPin: newUser.upiPin, // Send UPI PIN for demo (in production, don't send)
+        upiPin: newUser.upiPin, // For demo only
         photo: newUser.photo,
         dob: newUser.dob,
         registrationDate: newUser.registrationDate
@@ -396,7 +326,6 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Login with OTP verification
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { mobile, email, otp } = req.body;
@@ -422,19 +351,13 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found. Please register first.' });
     }
     
-    // For demo purposes, accept any OTP starting with 123456
-    // In production, implement proper OTP verification
+    // For demo, accept any OTP starting with 123456
+    // In production, verify OTP from otpStore
     if (otp !== '123456') {
-      // Check if OTP matches the generated one
-      const identifier = mobile || email;
-      const storedOtp = otpStorage[identifier];
-      
-      if (!storedOtp || storedOtp.otp !== otp) {
+      const otpData = otpStore.get(mobile || email);
+      if (!otpData || otpData.otp !== otp) {
         return res.status(400).json({ success: false, message: 'Invalid OTP.' });
       }
-      
-      // Clean up OTP
-      delete otpStorage[identifier];
     }
     
     // Update last login
@@ -465,7 +388,7 @@ app.post('/api/auth/login', async (req, res) => {
         bankName: user.bankName,
         accountNumber: user.accountNumber,
         atmCardNumber: user.atmCardNumber,
-        upiPin: user.upiPin, // Send UPI PIN for demo (in production, don't send)
+        upiPin: user.upiPin, // For demo only
         photo: user.photo,
         dob: user.dob,
         registrationDate: user.registrationDate
@@ -491,7 +414,7 @@ app.get('/api/users/:id', verifyToken, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
     
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select('-upiPin');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
@@ -518,16 +441,18 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
     delete updates.mobile;
     delete updates.email;
     delete updates.panNumber;
+    delete updates.balance;
+    delete updates.appBalance;
+    delete updates.registrationDate;
     delete updates.upiId;
     delete updates.referralCode;
     delete updates.creditScore;
-    delete updates.registrationDate;
     
     const user = await User.findByIdAndUpdate(
       userId,
       { $set: updates },
       { new: true, runValidators: true }
-    );
+    ).select('-upiPin');
     
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
@@ -551,7 +476,6 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
     // Delete user and all associated data
     await User.findByIdAndDelete(userId);
     await Transaction.deleteMany({ userId });
-    await Loan.deleteMany({ userId });
     
     res.json({ success: true, message: 'Account and all data deleted successfully.' });
   } catch (error) {
@@ -560,112 +484,61 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
   }
 });
 
-// User Search APIs
-app.get('/api/users/search/upi/:upiId', verifyToken, async (req, res) => {
+// User lookup by UPI or Mobile
+app.get('/api/users/upi/:upiId', verifyToken, async (req, res) => {
   try {
-    const upiId = req.params.upiId;
+    const { upiId } = req.params;
     
-    const user = await User.findOne({ upiId, isActive: true }).select('-upiPin -pendingTransactions');
+    const user = await User.findOne({ upiId, isActive: true }).select('-upiPin -accountNumber -atmCardNumber');
     
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
     
-    res.json({ success: true, user });
-  } catch (error) {
-    console.error('Search user by UPI error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
-  }
-});
-
-app.get('/api/users/search/mobile/:mobile', verifyToken, async (req, res) => {
-  try {
-    const mobile = req.params.mobile;
-    
-    const user = await User.findOne({ mobile, isActive: true }).select('-upiPin -pendingTransactions');
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    
-    res.json({ success: true, user });
-  } catch (error) {
-    console.error('Search user by mobile error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
-  }
-});
-
-// Admin Routes
-app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const users = await User.find({ isActive: true })
-      .select('-upiPin -pendingTransactions')
-      .sort({ registrationDate: -1 });
-    
-    res.json({ success: true, users });
-  } catch (error) {
-    console.error('Get all users error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
-  }
-});
-
-app.put('/api/admin/users/:id', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const userId = req.params.id;
-    const updates = req.body;
-    
-    // Don't allow updating certain fields
-    delete updates._id;
-    delete updates.upiId;
-    delete updates.referralCode;
-    delete updates.registrationDate;
-    
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { $set: updates },
-      { new: true, runValidators: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    
-    res.json({ success: true, message: 'User updated successfully.', user });
-  } catch (error) {
-    console.error('Admin update user error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
-  }
-});
-
-app.put('/api/admin/banks/:bankName', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const bankName = req.params.bankName;
-    const { status } = req.body;
-    
-    if (!BANK_SERVER_STATUS[bankName]) {
-      return res.status(404).json({ success: false, message: 'Bank not found.' });
-    }
-    
-    if (!['active', 'slow', 'down'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Invalid status. Must be active, slow, or down.' });
-    }
-    
-    // Update bank status
-    BANK_SERVER_STATUS[bankName] = {
-      status,
-      lastChecked: new Date(),
-      responseTime: status === 'active' ? `${Math.floor(Math.random() * 150) + 50}ms` : 
-                   status === 'slow' ? `${Math.floor(Math.random() * 500) + 300}ms` : 
-                   'Timeout'
-    };
-    
-    res.json({
-      success: true,
-      message: `Bank status updated to ${status}.`,
-      status: BANK_SERVER_STATUS[bankName]
+    res.json({ 
+      success: true, 
+      user: {
+        _id: user._id,
+        username: user.username,
+        mobile: user.mobile,
+        email: user.email,
+        upiId: user.upiId,
+        bankName: user.bankName,
+        balance: user.balance,
+        appBalance: user.appBalance
+      }
     });
   } catch (error) {
-    console.error('Update bank status error:', error);
+    console.error('Get user by UPI error:', error);
+    res.status(500).json({ success: false, message: 'Server error.' });
+  }
+});
+
+app.get('/api/users/mobile/:mobile', verifyToken, async (req, res) => {
+  try {
+    const { mobile } = req.params;
+    
+    const user = await User.findOne({ mobile, isActive: true }).select('-upiPin -accountNumber -atmCardNumber');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    
+    res.json({ 
+      success: true, 
+      user: {
+        _id: user._id,
+        username: user.username,
+        mobile: user.mobile,
+        email: user.email,
+        upiId: user.upiId,
+        bankName: user.bankName,
+        balance: user.balance,
+        appBalance: user.appBalance
+      }
+    });
+  } catch (error) {
+    console.error('Get user by mobile error:', error);
     res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
@@ -790,29 +663,27 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
     
-    // Get user
-    const user = await User.findById(userId);
-    if (!user) {
+    // Get sender
+    const sender = await User.findById(userId);
+    if (!sender) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
     
     // Verify UPI PIN
-    if (upiPin !== user.upiPin) {
+    if (upiPin !== sender.upiPin) {
       return res.status(400).json({ success: false, message: 'Invalid UPI PIN.' });
     }
     
     // Check bank server status
-    const senderBankActive = BANK_SERVER_STATUS[user.bankName]?.status === 'active';
+    const senderBankStatusInfo = BANK_SERVER_STATUS[sender.bankName] || { status: 'unknown' };
     let receiverBank = receiverDetails?.bank || 'Unknown Bank';
-    const receiverBankActive = BANK_SERVER_STATUS[receiverBank]?.status === 'active';
+    const receiverBankStatusInfo = BANK_SERVER_STATUS[receiverBank] || { status: 'unknown' };
+    
+    const senderBankActive = senderBankStatusInfo.status === 'active';
+    const receiverBankActive = receiverBankStatusInfo.status === 'active';
     
     // Case 1: Sender's bank is down
     if (!senderBankActive && receiverBankActive) {
-      // Check if sender has sufficient balance
-      if (user.balance < amount) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance in your bank account.' });
-      }
-      
       // DPay advances the payment
       const transaction = new Transaction({
         userId,
@@ -820,7 +691,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         amount,
         description: `${description} (DPay Advanced - Sender Bank Down)`,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         senderBankStatus: 'down',
         receiverBankStatus: 'active',
@@ -830,22 +701,23 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
           downtimeHandled: true,
           senderBankDown: true,
           appBalanceAdvanced: true,
-          timestamp: new Date()
+          timestamp: new Date(),
+          receiverUserId: receiverDetails?.userId
         }
       });
       
       await transaction.save();
       
-      // Update user app balance (negative)
-      user.appBalance = (user.appBalance || 0) - amount;
+      // Update sender app balance (negative)
+      sender.appBalance = (sender.appBalance || 0) - amount;
       
       // Add to pending transactions for recovery
-      user.pendingTransactions.push({
+      sender.pendingTransactions.push({
         transactionId: transaction._id,
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         status: 'pending',
         metadata: {
@@ -855,29 +727,60 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         }
       });
       
-      await user.save();
+      await sender.save();
+      
+      // Update receiver balance if receiverUserId is provided
+      if (receiverDetails?.userId) {
+        const receiver = await User.findById(receiverDetails.userId);
+        if (receiver) {
+          receiver.balance = (receiver.balance || 0) + amount;
+          await receiver.save();
+          
+          // Create credit transaction for receiver
+          const receiverTransaction = new Transaction({
+            userId: receiverDetails.userId,
+            type: 'credit',
+            amount,
+            description: `Payment from ${sender.username}`,
+            senderDetails: {
+              userId: sender._id,
+              username: sender.username,
+              upiId: sender.upiId
+            },
+            senderBank: sender.bankName,
+            receiverBank: receiver.bankName,
+            senderBankStatus: 'down',
+            receiverBankStatus: 'active',
+            category: category || 'payment',
+            status: 'completed',
+            metadata: {
+              senderUserId: sender._id,
+              advancedByDPay: true
+            }
+          });
+          
+          await receiverTransaction.save();
+        }
+      }
       
       return res.json({
         success: true,
         message: 'Payment advanced by DPay due to sender bank downtime.',
         transaction,
-        newBalance: user.balance,
-        newAppBalance: user.appBalance
+        newBalance: sender.balance,
+        newAppBalance: sender.appBalance
       });
     }
     
     // Case 2: Receiver's bank is down
     else if (senderBankActive && !receiverBankActive) {
       // Check sender balance
-      if (user.balance < amount) {
+      if (sender.balance < amount) {
         return res.status(400).json({ success: false, message: 'Insufficient balance.' });
       }
       
       // Deduct from sender
-      user.balance -= amount;
-      
-      // Add to app balance as held amount
-      user.appBalance = (user.appBalance || 0) + amount;
+      sender.balance -= amount;
       
       const transaction = new Transaction({
         userId,
@@ -885,7 +788,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         amount,
         description: `${description} (DPay Holding - Receiver Bank Down)`,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         senderBankStatus: 'active',
         receiverBankStatus: 'down',
@@ -895,19 +798,20 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
           downtimeHandled: true,
           receiverBankDown: true,
           amountHeldByDPay: true,
-          timestamp: new Date()
+          timestamp: new Date(),
+          receiverUserId: receiverDetails?.userId
         }
       });
       
       await transaction.save();
       
       // Add to pending transactions for recovery
-      user.pendingTransactions.push({
+      sender.pendingTransactions.push({
         transactionId: transaction._id,
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         status: 'pending',
         metadata: {
@@ -917,24 +821,19 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         }
       });
       
-      await user.save();
+      await sender.save();
       
       return res.json({
         success: true,
         message: 'Payment held by DPay due to receiver bank downtime.',
         transaction,
-        newBalance: user.balance,
-        newAppBalance: user.appBalance
+        newBalance: sender.balance,
+        newAppBalance: sender.appBalance
       });
     }
     
     // Case 3: Both banks are down
     else if (!senderBankActive && !receiverBankActive) {
-      // Check sender balance
-      if (user.balance < amount) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance in your bank account.' });
-      }
-      
       // DPay advances and holds the payment
       const transaction = new Transaction({
         userId,
@@ -942,7 +841,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         amount,
         description: `${description} (DPay Advanced & Holding - Both Banks Down)`,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         senderBankStatus: 'down',
         receiverBankStatus: 'down',
@@ -953,22 +852,23 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
           bothBanksDown: true,
           appBalanceAdvanced: true,
           amountHeldByDPay: true,
-          timestamp: new Date()
+          timestamp: new Date(),
+          receiverUserId: receiverDetails?.userId
         }
       });
       
       await transaction.save();
       
-      // Update user app balance (negative amount for sender)
-      user.appBalance = (user.appBalance || 0) - amount;
+      // Update sender app balance (negative)
+      sender.appBalance = (sender.appBalance || 0) - amount;
       
       // Add to pending transactions for recovery
-      user.pendingTransactions.push({
+      sender.pendingTransactions.push({
         transactionId: transaction._id,
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         status: 'pending',
         metadata: {
@@ -978,26 +878,26 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         }
       });
       
-      await user.save();
+      await sender.save();
       
       return res.json({
         success: true,
         message: 'Payment advanced and held by DPay due to both banks downtime.',
         transaction,
-        newBalance: user.balance,
-        newAppBalance: user.appBalance
+        newBalance: sender.balance,
+        newAppBalance: sender.appBalance
       });
     }
     
     // Normal case: Both banks are active
     else {
       // Check balance
-      if (user.balance < amount) {
+      if (sender.balance < amount) {
         return res.status(400).json({ success: false, message: 'Insufficient balance.' });
       }
       
       // Process normal payment
-      user.balance -= amount;
+      sender.balance -= amount;
       
       const transaction = new Transaction({
         userId,
@@ -1005,7 +905,7 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         amount,
         description,
         receiverDetails,
-        senderBank: user.bankName,
+        senderBank: sender.bankName,
         receiverBank: receiverBank,
         senderBankStatus: 'active',
         receiverBankStatus: 'active',
@@ -1013,19 +913,53 @@ app.post('/api/payments/downtime', verifyToken, async (req, res) => {
         status: 'completed',
         metadata: {
           normalTransaction: true,
-          timestamp: new Date()
+          timestamp: new Date(),
+          receiverUserId: receiverDetails?.userId
         }
       });
       
       await transaction.save();
-      await user.save();
+      await sender.save();
+      
+      // Update receiver balance if receiverUserId is provided
+      if (receiverDetails?.userId) {
+        const receiver = await User.findById(receiverDetails.userId);
+        if (receiver) {
+          receiver.balance = (receiver.balance || 0) + amount;
+          await receiver.save();
+          
+          // Create credit transaction for receiver
+          const receiverTransaction = new Transaction({
+            userId: receiverDetails.userId,
+            type: 'credit',
+            amount,
+            description: `Payment from ${sender.username}`,
+            senderDetails: {
+              userId: sender._id,
+              username: sender.username,
+              upiId: sender.upiId
+            },
+            senderBank: sender.bankName,
+            receiverBank: receiver.bankName,
+            senderBankStatus: 'active',
+            receiverBankStatus: 'active',
+            category: category || 'payment',
+            status: 'completed',
+            metadata: {
+              senderUserId: sender._id
+            }
+          });
+          
+          await receiverTransaction.save();
+        }
+      }
       
       return res.json({
         success: true,
         message: 'Payment processed successfully.',
         transaction,
-        newBalance: user.balance,
-        newAppBalance: user.appBalance
+        newBalance: sender.balance,
+        newAppBalance: sender.appBalance
       });
     }
   } catch (error) {
@@ -1053,11 +987,11 @@ app.post('/api/payments/recover', verifyToken, async (req, res) => {
     
     // Check each pending transaction
     for (const pendingTx of user.pendingTransactions) {
-      const senderBankStatus = BANK_SERVER_STATUS[pendingTx.senderBank]?.status === 'active';
-      const receiverBankStatus = BANK_SERVER_STATUS[pendingTx.receiverBank]?.status === 'active';
+      const senderBankStatus = BANK_SERVER_STATUS[pendingTx.senderBank] || { status: 'unknown' };
+      const receiverBankStatus = BANK_SERVER_STATUS[pendingTx.receiverBank] || { status: 'unknown' };
       
       // Only recover if both banks are active
-      if (senderBankStatus && receiverBankStatus) {
+      if (senderBankStatus.status === 'active' && receiverBankStatus.status === 'active') {
         const metadata = pendingTx.metadata || {};
         
         // Handle based on transaction type
@@ -1100,10 +1034,6 @@ app.post('/api/payments/recover', verifyToken, async (req, res) => {
               recoveryDate: new Date()
             }
           });
-          
-          // Deduct from app balance and add to receiver's account
-          // (In production, this would transfer to receiver's actual account)
-          user.appBalance -= pendingTx.amount;
           
           recoveredTransactions.push({
             transactionId: pendingTx.transactionId,
@@ -1164,141 +1094,93 @@ app.post('/api/payments/recover', verifyToken, async (req, res) => {
   }
 });
 
-// QR Code APIs
-app.get('/api/qr/generate/:userId', verifyToken, async (req, res) => {
+// Admin Routes
+app.get('/api/admin/users', verifyToken, async (req, res) => {
   try {
-    const userId = req.params.userId;
+    const adminUser = await User.findById(req.user.userId);
     
-    if (req.user.userId !== userId) {
-      return res.status(403).json({ success: false, message: 'Access denied.' });
+    // Check if user is admin (mobile: 7825007490)
+    if (adminUser.mobile !== '7825007490') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin only.' });
     }
     
-    const user = await User.findById(userId);
+    const users = await User.find({ isActive: true })
+      .select('-upiPin -accountNumber -atmCardNumber')
+      .sort({ registrationDate: -1 });
+    
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ success: false, message: 'Server error.' });
+  }
+});
+
+app.put('/api/admin/users/:id', verifyToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    
+    // Check if user is admin (mobile: 7825007490)
+    if (adminUser.mobile !== '7825007490') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin only.' });
+    }
+    
+    const userId = req.params.id;
+    const updates = req.body;
+    
+    // Don't allow updating certain fields
+    delete updates._id;
+    delete updates.registrationDate;
+    delete updates.upiId;
+    delete updates.referralCode;
+    
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-upiPin -accountNumber -atmCardNumber');
+    
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
     
-    const qrData = `upi://pay?pa=${user.upiId}&pn=${encodeURIComponent(user.username)}&cu=INR&tn=DPay%20Payment`;
-    
-    // Generate QR code
-    const qrCode = await QRCode.toDataURL(qrData);
-    
-    res.json({
-      success: true,
-      qrData,
-      qrCode,
-      user: {
-        username: user.username,
-        upiId: user.upiId
-      }
-    });
+    res.json({ success: true, message: 'User updated successfully.', user });
   } catch (error) {
-    console.error('QR generation error:', error);
+    console.error('Admin update user error:', error);
     res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
 
-app.post('/api/qr/parse', verifyToken, async (req, res) => {
+app.post('/api/admin/bank-status', verifyToken, async (req, res) => {
   try {
-    const { qrData } = req.body;
+    const adminUser = await User.findById(req.user.userId);
     
-    if (!qrData) {
-      return res.status(400).json({ success: false, message: 'QR data is required.' });
+    // Check if user is admin (mobile: 7825007490)
+    if (adminUser.mobile !== '7825007490') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin only.' });
     }
     
-    // For demo purposes, parse a sample QR data
-    // In production, you would use a QR code parsing library
-    const demoQRData = "upi://pay?pa=johndoe1234@dpay&pn=John%20Doe&am=500&cu=INR&tn=Payment%20for%20services";
+    const { bankName, status } = req.body;
     
-    // Parse UPI data
-    const params = new URLSearchParams(demoQRData.split('?')[1]);
-    const upiId = params.get('pa') || 'johndoe1234@dpay';
-    const receiverName = decodeURIComponent(params.get('pn') || 'John Doe');
-    const amount = params.get('am') || '';
+    if (!bankName || !['active', 'slow', 'down'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid bank name or status.' });
+    }
     
-    // Search for user by UPI ID
-    const user = await User.findOne({ upiId, isActive: true }).select('-upiPin -pendingTransactions');
-    
-    res.json({
-      success: true,
-      qrData: demoQRData,
-      upiId,
-      receiverName: user ? user.username : receiverName,
-      amount,
-      user: user || null
-    });
-  } catch (error) {
-    console.error('QR parse error:', error);
-    res.status(500).json({ success: false, message: 'Server error.' });
-  }
-});
-
-// Loan Routes (only listing, no application)
-app.get('/api/loans/offers/:loanType', verifyToken, async (req, res) => {
-  try {
-    const loanType = req.params.loanType;
-    
-    // Sample loan offers data
-    const loanOffers = {
-      home: [
-        { bank: 'HDFC Bank', interest: '8.4% p.a.', amount: 'Up to ₹5 Cr', tenure: 'Up to 30 years', processing: '0.5%' },
-        { bank: 'SBI', interest: '8.5% p.a.', amount: 'Up to ₹10 Cr', tenure: 'Up to 30 years', processing: '0.35% + GST' },
-        { bank: 'ICICI Bank', interest: '8.6% p.a.', amount: 'Up to ₹5 Cr', tenure: 'Up to 30 years', processing: '0.5%' },
-        { bank: 'Axis Bank', interest: '8.7% p.a.', amount: 'Up to ₹5 Cr', tenure: 'Up to 30 years', processing: '0.5%' },
-        { bank: 'Kotak Mahindra Bank', interest: '8.8% p.a.', amount: 'Up to ₹10 Cr', tenure: 'Up to 25 years', processing: '0.5%' }
-      ],
-      education: [
-        { bank: 'SBI', interest: '8.15% p.a.', amount: 'Up to ₹1.5 Cr', tenure: 'Up to 15 years', processing: 'Nil' },
-        { bank: 'HDFC Bank', interest: '9.5% p.a.', amount: 'Up to ₹50 Lakh', tenure: 'Up to 15 years', processing: '1%' },
-        { bank: 'Axis Bank', interest: '10% p.a.', amount: 'Up to ₹75 Lakh', tenure: 'Up to 15 years', processing: '1%' },
-        { bank: 'ICICI Bank', interest: '9.75% p.a.', amount: 'Up to ₹1 Cr', tenure: 'Up to 15 years', processing: '1%' }
-      ],
-      agriculture: [
-        { bank: 'Bank of Baroda', interest: '7% p.a.', amount: 'Up to ₹50 Lakh', tenure: 'Up to 7 years', processing: 'Nil' },
-        { bank: 'PNB', interest: '7.3% p.a.', amount: 'Up to ₹1 Cr', tenure: 'Up to 10 years', processing: 'Nil' },
-        { bank: 'Canara Bank', interest: '7.5% p.a.', amount: 'Up to ₹50 Lakh', tenure: 'Up to 7 years', processing: '0.5%' },
-        { bank: 'Union Bank of India', interest: '7.25% p.a.', amount: 'Up to ₹75 Lakh', tenure: 'Up to 10 years', processing: 'Nil' }
-      ],
-      gold: [
-        { bank: 'Muthoot Finance', interest: '12% p.a.', amount: 'Up to ₹5 Cr', tenure: 'Up to 3 years', processing: '1%' },
-        { bank: 'Manappuram Finance', interest: '12.5% p.a.', amount: 'Up to ₹10 Cr', tenure: 'Up to 3 years', processing: '1%' },
-        { bank: 'HDFC Bank', interest: '9.5% p.a.', amount: 'Up to ₹1 Cr', tenure: 'Up to 3 years', processing: '1%' },
-        { bank: 'ICICI Bank', interest: '10% p.a.', amount: 'Up to ₹1 Cr', tenure: 'Up to 3 years', processing: '1%' }
-      ],
-      healthcare: [
-        { bank: 'Apollo Hospitals', interest: '11% p.a.', amount: 'Up to ₹25 Lakh', tenure: 'Up to 5 years', processing: '1%' },
-        { bank: 'HDFC Bank', interest: '10.5% p.a.', amount: 'Up to ₹20 Lakh', tenure: 'Up to 5 years', processing: '1%' },
-        { bank: 'ICICI Bank', interest: '11.5% p.a.', amount: 'Up to ₹30 Lakh', tenure: 'Up to 5 years', processing: '1%' }
-      ],
-      insurance: [
-        { provider: 'LIC', type: 'Life Insurance', coverage: 'Up to ₹2 Cr', premium: '₹500/month', tenure: 'Up to 30 years' },
-        { provider: 'HDFC Life', type: 'Term Insurance', coverage: 'Up to ₹5 Cr', premium: '₹600/month', tenure: 'Up to 40 years' },
-        { provider: 'ICICI Prudential', type: 'Health Insurance', coverage: 'Up to ₹1 Cr', premium: '₹700/month', tenure: '1 year' },
-        { provider: 'Bajaj Allianz', type: 'Motor Insurance', coverage: 'IDV based', premium: '₹2000/year', tenure: '1 year' }
-      ],
-      personal: [
-        { bank: 'HDFC Bank', interest: '10.5% p.a.', amount: 'Up to ₹40 Lakh', tenure: 'Up to 7 years', processing: '2%' },
-        { bank: 'SBI', interest: '10.25% p.a.', amount: 'Up to ₹20 Lakh', tenure: 'Up to 6 years', processing: '1%' },
-        { bank: 'ICICI Bank', interest: '10.75% p.a.', amount: 'Up to ₹50 Lakh', tenure: 'Up to 7 years', processing: '2%' },
-        { bank: 'Axis Bank', interest: '11% p.a.', amount: 'Up to ₹40 Lakh', tenure: 'Up to 7 years', processing: '2%' }
-      ],
-      business: [
-        { bank: 'SBI', interest: '9.2% p.a.', amount: 'Up to ₹50 Cr', tenure: 'Up to 15 years', processing: '0.5%' },
-        { bank: 'HDFC Bank', interest: '9.5% p.a.', amount: 'Up to ₹50 Cr', tenure: 'Up to 15 years', processing: '1%' },
-        { bank: 'ICICI Bank', interest: '9.8% p.a.', amount: 'Up to ₹100 Cr', tenure: 'Up to 20 years', processing: '1%' },
-        { bank: 'Axis Bank', interest: '10% p.a.', amount: 'Up to ₹50 Cr', tenure: 'Up to 15 years', processing: '1%' }
-      ]
+    // Update bank status
+    BANK_SERVER_STATUS[bankName] = {
+      status,
+      lastChecked: new Date(),
+      responseTime: status === 'active' ? '100ms' : 
+                   status === 'slow' ? '400ms' : 'Timeout'
     };
     
-    const offers = loanOffers[loanType] || [];
-    
     res.json({
       success: true,
-      loanType,
-      offers
+      message: 'Bank status updated successfully.',
+      bankName,
+      status: BANK_SERVER_STATUS[bankName]
     });
   } catch (error) {
-    console.error('Get loan offers error:', error);
+    console.error('Update bank status error:', error);
     res.status(500).json({ success: false, message: 'Server error.' });
   }
 });
@@ -1309,7 +1191,8 @@ app.get('/api/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date(),
     service: 'DPay API',
-    version: '1.0.0'
+    version: '1.0.0',
+    bankStatus: BANK_SERVER_STATUS
   });
 });
 
@@ -1320,18 +1203,17 @@ app.get('/api/test', (req, res) => {
     message: 'DPay API is working!',
     endpoints: [
       '/api/health',
-      '/api/otp/send',
-      '/api/otp/verify',
       '/api/auth/register',
       '/api/auth/login',
+      '/api/auth/send-otp',
+      '/api/auth/verify-otp',
       '/api/users/:id',
-      '/api/users/search/upi/:upiId',
-      '/api/users/search/mobile/:mobile',
+      '/api/users/upi/:upiId',
+      '/api/users/mobile/:mobile',
       '/api/transactions/user/:userId',
       '/api/payments/downtime',
-      '/api/loans/offers/:loanType',
       '/api/admin/users',
-      '/api/admin/banks/:bankName'
+      '/api/admin/bank-status'
     ]
   });
 });
